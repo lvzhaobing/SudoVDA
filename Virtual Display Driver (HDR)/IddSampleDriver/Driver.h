@@ -85,9 +85,16 @@ namespace Microsoft
             void FinishInit();
 
             void CreateMonitor(unsigned int index);
+            NTSTATUS CreateMonitor(unsigned int index, GUID &monitorID);
 
             void AssignSwapChain(IDDCX_SWAPCHAIN SwapChain, LUID RenderAdapter, HANDLE NewFrameEvent);
             void UnassignSwapChain();
+
+            IDDCX_MONITOR GetLastMonitor() const;
+
+            NTSTATUS CreateVirtualMonitor(UINT Width, UINT Height, UINT RefreshRate, GUID MonitorGuid, const WCHAR* DeviceName);
+
+            void AddMonitorModes(UINT Width, UINT Height, UINT RefreshRate);
 
         protected:
 

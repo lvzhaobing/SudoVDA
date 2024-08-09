@@ -16,29 +16,29 @@ Environment:
 --*/
 
 #include "Driver.h"
-//#include "Driver.tmh"
-#include<fstream>
-#include<sstream>
-#include<string>
-#include<tuple>
-#include<vector>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <tuple>
+#include <vector>
+#include <list>
+#include <map>
+
+#include <vdd_ioctl.h>
 #include <AdapterOption.h>
-#include <xmllite.h>
-#include <shlwapi.h>
+// #include <xmllite.h>
+// #include <shlwapi.h>
 #include <atlbase.h>
 #include <iostream>
 #include <cstdlib>
 #include <windows.h>
 
-
-
-#pragma comment(lib, "xmllite.lib")
-#pragma comment(lib, "shlwapi.lib")
+// #pragma comment(lib, "xmllite.lib")
+// #pragma comment(lib, "shlwapi.lib")
 
 using namespace std;
 using namespace Microsoft::IndirectDisp;
 using namespace Microsoft::WRL;
-
 extern "C" DRIVER_INITIALIZE DriverEntry;
 
 EVT_WDF_DRIVER_DEVICE_ADD IddSampleDeviceAdd;
@@ -72,7 +72,8 @@ UINT numVirtualDisplays;
 wstring gpuname;
 wstring confpath;
 
-
+UINT connectedDisplayCount = 0;
+std::list<std::pair<GUID, IDDCX_MONITOR>> monitorMap; // Global map to track monitors by GUID
 
 struct IndirectDeviceContextWrapper
 {
@@ -136,30 +137,28 @@ vector<string> split(string& input, char delimiter)
 }
 
 
-bool initpath() {
+bool loadGPUSettings() {
 	HKEY hKey;
-	wchar_t szPath[MAX_PATH];
-	DWORD dwBufferSize = sizeof(szPath);
+	wchar_t gpuName[128];
+	DWORD dwBufferSize = sizeof(gpuName);
 	LONG lResult;
 
 	// Open the registry key
-	lResult = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\MikeTheTech\\VirtualDisplayDriver", 0, KEY_READ, &hKey);
+	lResult = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\SudoMaker\\SudoVDA", 0, KEY_READ, &hKey);
 	if (lResult != ERROR_SUCCESS) {
 		wcerr << L"Failed to open registry key. Error code: " << lResult << endl;
-		confpath = L"C:\\IddSampleDriver"; // Default path if registry key not found
 		return false;
 	}
 
 	// Query the value
-	lResult = RegQueryValueExW(hKey, L"VDDPATH", NULL, NULL, (LPBYTE)szPath, &dwBufferSize);
+	lResult = RegQueryValueExW(hKey, L"gpuName", NULL, NULL, (LPBYTE)gpuName, &dwBufferSize);
 	if (lResult != ERROR_SUCCESS) {
 		wcerr << L"Failed to read registry value. Error code: " << lResult << endl;
-		confpath = L"C:\\IddSampleDriver"; // Default path if registry value not found
 		RegCloseKey(hKey);
 		return false;
 	}
 
-	confpath = szPath;
+	gpuname = gpuName;
 
 	// Close the registry key
 	RegCloseKey(hKey);
@@ -168,150 +167,62 @@ bool initpath() {
 }
 
 void loadSettings() {
-	initpath();
-	const wstring settingsname = confpath + L"\\vdd_settings.xml";
-	const wstring& filename = settingsname;
-	if (PathFileExistsW(filename.c_str())) {
-		CComPtr<IStream> pStream;
-		CComPtr<IXmlReader> pReader;
-		HRESULT hr = SHCreateStreamOnFileW(filename.c_str(), STGM_READ, &pStream);
-		if (FAILED(hr)) {
-			return; //Failed to create file stream.
-		}
-		hr = CreateXmlReader(__uuidof(IXmlReader), (void**)&pReader, NULL);
-		if (FAILED(hr)) {
-			return;//Failed to create XmlReader.
-		}
-		hr = pReader->SetInput(pStream);
-		if (FAILED(hr)) {
-			return;//Failed to set input stream.
-		}
-
-		XmlNodeType nodeType;
-		const WCHAR* pwszLocalName;
-		const WCHAR* pwszValue;
-		UINT cwchLocalName;
-		UINT cwchValue;
-		wstring currentElement;
-		wstring width, height, refreshRate;
-		vector<tuple<int, int, int>> res;
-		wstring gpuFriendlyName;
-		UINT monitorcount = 1;
-
-		while (S_OK == (hr = pReader->Read(&nodeType))) {
-			switch (nodeType) {
-			case XmlNodeType_Element:
-				hr = pReader->GetLocalName(&pwszLocalName, &cwchLocalName);
-				if (FAILED(hr)) {
-					return;
-				}
-				currentElement = wstring(pwszLocalName, cwchLocalName);
-				break;
-			case XmlNodeType_Text:
-				hr = pReader->GetValue(&pwszValue, &cwchValue);
-				if (FAILED(hr)) {
-					return;
-				}
-				if (currentElement == L"count") {
-					monitorcount = stoi(wstring(pwszValue, cwchValue));
-					if (monitorcount == 0) {
-						monitorcount = 1;
-					}
-				}
-				else if (currentElement == L"friendlyname") {
-					gpuFriendlyName = wstring(pwszValue, cwchValue);
-				}
-				else if (currentElement == L"width") {
-					width = wstring(pwszValue, cwchValue);
-					if (width.empty()) {
-						width = L"800";
-					}
-				}
-				else if (currentElement == L"height") {
-					height = wstring(pwszValue, cwchValue);
-					if (height.empty()) {
-						height = L"600";
-					}
-				}
-				else if (currentElement == L"refresh_rate") {
-					refreshRate = wstring(pwszValue, cwchValue);
-					if (refreshRate.empty()) {
-						refreshRate = L"30";
-					}
-					res.push_back(make_tuple(stoi(width), stoi(height), stoi(refreshRate)));
-				}
-				break;
-			}
-		}
-
-		numVirtualDisplays = monitorcount;
-		gpuname = gpuFriendlyName;
-		monitorModes = res;
-		return;
-	}
-	const wstring optionsname = confpath + L"\\option.txt";
-	ifstream ifs(optionsname);
-	if (ifs.is_open()) {
-		string line;
-		vector<tuple<int, int, int>> res;
-		getline(ifs, line);
-		numVirtualDisplays = stoi(line);
-		while (getline(ifs, line)) {
-			vector<string> strvec = split(line, ',');
-			if (strvec.size() == 3 && strvec[0].substr(0, 1) != "#") {
-				res.push_back({ stoi(strvec[0]),stoi(strvec[1]),stoi(strvec[2]) });
-			}
-		}
-		monitorModes = res; return;
-	}
-	else {
-		numVirtualDisplays = 1;
-		vector<tuple<int, int, int>> res = {
-			make_tuple(800, 600, 30),
-			make_tuple(800, 600, 60),
-			make_tuple(800, 600, 90),
-			make_tuple(800, 600, 120),
-			make_tuple(800, 600, 144),
-			make_tuple(800, 600, 165),
-			make_tuple(1280, 720, 30),
-			make_tuple(1280, 720, 60),
-			make_tuple(1280, 720, 90),
-			make_tuple(1280, 720, 130),
-			make_tuple(1280, 720, 144),
-			make_tuple(1280, 720, 165),
-			make_tuple(1366, 768, 30),
-			make_tuple(1366, 768, 60),
-			make_tuple(1366, 768, 90),
-			make_tuple(1366, 768, 120),
-			make_tuple(1366, 768, 144),
-			make_tuple(1366, 768, 165),
-			make_tuple(1920, 1080, 30),
-			make_tuple(1920, 1080, 60),
-			make_tuple(1920, 1080, 90),
-			make_tuple(1920, 1080, 120),
-			make_tuple(1920, 1080, 144),
-			make_tuple(1920, 1080, 165),
-			make_tuple(2560, 1440, 30),
-			make_tuple(2560, 1440, 60),
-			make_tuple(2560, 1440, 90),
-			make_tuple(2560, 1440, 120),
-			make_tuple(2560, 1440, 144),
-			make_tuple(2560, 1440, 165),
-			make_tuple(3840, 2160, 30),
-			make_tuple(3840, 2160, 60),
-			make_tuple(3840, 2160, 90),
-			make_tuple(3840, 2160, 120),
-			make_tuple(3840, 2160, 144),
-			make_tuple(3840, 2160, 165)
-			
-
-
-
-
-		};
-		monitorModes = res; return;
-	}
+	loadGPUSettings();
+	numVirtualDisplays = 2;
+	vector<tuple<int, int, int>> res = {
+		make_tuple(800, 600, 30),
+		make_tuple(800, 600, 60),
+		make_tuple(800, 600, 90),
+		make_tuple(800, 600, 120),
+		make_tuple(800, 600, 144),
+		make_tuple(800, 600, 165),
+		make_tuple(1280, 720, 30),
+		make_tuple(1280, 720, 60),
+		make_tuple(1280, 720, 90),
+		make_tuple(1280, 720, 130),
+		make_tuple(1280, 720, 144),
+		make_tuple(1280, 720, 165),
+		make_tuple(1366, 768, 30),
+		make_tuple(1366, 768, 60),
+		make_tuple(1366, 768, 90),
+		make_tuple(1366, 768, 120),
+		make_tuple(1366, 768, 144),
+		make_tuple(1366, 768, 165),
+		make_tuple(1920, 1080, 30),
+		make_tuple(1920, 1080, 60),
+		make_tuple(1920, 1080, 90),
+		make_tuple(1920, 1080, 120),
+		make_tuple(1920, 1080, 144),
+		make_tuple(1920, 1080, 165),
+		make_tuple(2560, 1440, 30),
+		make_tuple(2560, 1440, 60),
+		make_tuple(2560, 1440, 90),
+		make_tuple(2560, 1440, 120),
+		make_tuple(2560, 1440, 144),
+		make_tuple(2560, 1440, 165),
+		make_tuple(3840, 2160, 30),
+		make_tuple(3840, 2160, 60),
+		make_tuple(3840, 2160, 90),
+		make_tuple(3840, 2160, 120),
+		make_tuple(3840, 2160, 144),
+		make_tuple(3840, 2160, 165)
+	};
+	monitorModes = res; return;
 }
+
+VOID IddSampleIoDeviceControl(
+	_In_ WDFDEVICE Device,
+	_In_ WDFREQUEST Request,
+	_In_ size_t OutputBufferLength,
+	_In_ size_t InputBufferLength,
+	_In_ ULONG IoControlCode
+);
+
+_Use_decl_annotations_
+NTSTATUS IddSampleEvtIddCxAdapterCommitModes2(
+	IDDCX_ADAPTER AdapterObject,
+	const IDARG_IN_COMMITMODES2* pInArgs
+);
 
 _Use_decl_annotations_
 NTSTATUS IddSampleDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
@@ -331,7 +242,7 @@ NTSTATUS IddSampleDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
 
 	// If the driver wishes to handle custom IoDeviceControl requests, it's necessary to use this callback since IddCx
 	// redirects IoDeviceControl requests to an internal queue. This sample does not need this.
-	// IddConfig.EvtIddCxDeviceIoControl = IddSampleIoDeviceControl;
+	IddConfig.EvtIddCxDeviceIoControl = IddSampleIoDeviceControl;
 	loadSettings();
 	if (gpuname.empty()) {
 		const wstring adaptername = confpath + L"\\adapter.txt";
@@ -727,19 +638,19 @@ void IndirectDeviceContext::InitAdapter()
 void IndirectDeviceContext::FinishInit()
 {
 	Options.Adapter.apply(m_Adapter);
-	for (unsigned int i = 0; i < numVirtualDisplays; i++) {
-		CreateMonitor(i);
+	for (unsigned int i = 0; i < 2; i++) {
+	    CreateMonitor(i);
 	}
 }
 
 void IndirectDeviceContext::CreateMonitor(unsigned int index) {
-	// ==============================
-	// TODO: In a real driver, the EDID should be retrieved dynamically from a connected physical monitor. The EDID
-	// provided here is purely for demonstration, as it describes only 640x480 @ 60 Hz and 800x600 @ 60 Hz. Monitor
-	// manufacturers are required to correctly fill in physical monitor attributes in order to allow the OS to optimize
-	// settings like viewing distance and scale factor. Manufacturers should also use a unique serial number every
-	// single device to ensure the OS can tell the monitors apart.
-	// ==============================
+	GUID monitorID;
+	CoCreateGuid(&monitorID);
+	CreateMonitor(index, monitorID);
+}
+
+NTSTATUS IndirectDeviceContext::CreateMonitor(unsigned int index, GUID &monitorID) {
+	// In a real driver, the EDID should be retrieved dynamically from a connected physical monitor.
 
 	WDF_OBJECT_ATTRIBUTES Attr;
 	WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attr, IndirectDeviceContextWrapper);
@@ -753,16 +664,10 @@ void IndirectDeviceContext::CreateMonitor(unsigned int index) {
 	MonitorInfo.MonitorDescription.DataSize = sizeof(s_KnownMonitorEdid);
 	MonitorInfo.MonitorDescription.pData = const_cast<BYTE*>(s_KnownMonitorEdid);
 
-	// ==============================
-	// TODO: The monitor's container ID should be distinct from "this" device's container ID if the monitor is not
-	// permanently attached to the display adapter device object. The container ID is typically made unique for each
-	// monitor and can be used to associate the monitor with other devices, like audio or input devices. In this
-	// sample we generate a random container ID GUID, but it's best practice to choose a stable container ID for a
-	// unique monitor or to use "this" device's container ID for a permanent/integrated monitor.
-	// ==============================
+	MonitorInfo.MonitorContainerId = monitorID;
 
 	// Create a container ID
-	CoCreateGuid(&MonitorInfo.MonitorContainerId);
+	// CoCreateGuid(&MonitorInfo.MonitorContainerId);
 
 	IDARG_IN_MONITORCREATE MonitorCreate = {};
 	MonitorCreate.ObjectAttributes = &Attr;
@@ -771,6 +676,7 @@ void IndirectDeviceContext::CreateMonitor(unsigned int index) {
 	// Create a monitor object with the specified monitor descriptor
 	IDARG_OUT_MONITORCREATE MonitorCreateOut;
 	NTSTATUS Status = IddCxMonitorCreate(m_Adapter, &MonitorCreate, &MonitorCreateOut);
+
 	if (NT_SUCCESS(Status))
 	{
 		m_Monitor = MonitorCreateOut.MonitorObject;
@@ -783,24 +689,83 @@ void IndirectDeviceContext::CreateMonitor(unsigned int index) {
 		IDARG_OUT_MONITORARRIVAL ArrivalOut;
 		Status = IddCxMonitorArrival(m_Monitor, &ArrivalOut);
 	}
+
+	return Status;
 }
+
+// void IndirectDeviceContext::AssignSwapChain(IDDCX_SWAPCHAIN SwapChain, LUID RenderAdapter, HANDLE NewFrameEvent)
+// {
+// 	m_ProcessingThread.reset();
+
+// 	auto Device = make_shared<Direct3DDevice>(RenderAdapter);
+// 	if (FAILED(Device->Init()))
+// 	{
+// 		// It's important to delete the swap-chain if D3D initialization fails, so that the OS knows to generate a new
+// 		// swap-chain and try again.
+// 		WdfObjectDelete(SwapChain);
+// 	}
+// 	else
+// 	{
+// 		// Create a new swap-chain processing thread
+// 		m_ProcessingThread.reset(new SwapChainProcessor(SwapChain, Device, NewFrameEvent));
+// 	}
+// }
 
 void IndirectDeviceContext::AssignSwapChain(IDDCX_SWAPCHAIN SwapChain, LUID RenderAdapter, HANDLE NewFrameEvent)
 {
-	m_ProcessingThread.reset();
+    m_ProcessingThread.reset();
 
-	auto Device = make_shared<Direct3DDevice>(RenderAdapter);
-	if (FAILED(Device->Init()))
-	{
-		// It's important to delete the swap-chain if D3D initialization fails, so that the OS knows to generate a new
-		// swap-chain and try again.
-		WdfObjectDelete(SwapChain);
-	}
-	else
-	{
-		// Create a new swap-chain processing thread
-		m_ProcessingThread.reset(new SwapChainProcessor(SwapChain, Device, NewFrameEvent));
-	}
+    auto Device = make_shared<Direct3DDevice>(RenderAdapter);
+    if (FAILED(Device->Init()))
+    {
+        // It's important to delete the swap-chain if D3D initialization fails, so that the OS knows to generate a new
+        // swap-chain and try again.
+        WdfObjectDelete(SwapChain);
+    }
+    else
+    {
+        // Create a new swap-chain processing thread
+        m_ProcessingThread.reset(new SwapChainProcessor(SwapChain, Device, NewFrameEvent));
+
+
+        //create an event to get notified new cursor data
+        HANDLE mouseEvent = CreateEventA(
+            nullptr, //TODO set proper SECURITY_ATTRIBUTES
+            false, 
+            false,
+            "arbitraryMouseEventName");;
+
+        if (!mouseEvent)
+        {
+            //do error handling
+        	// WdfObjectDelete(SwapChain);
+        } 
+
+
+        //set up cursor capabilities
+        IDDCX_CURSOR_CAPS cursorInfo = {};
+        cursorInfo.Size = sizeof(cursorInfo);
+        cursorInfo.AlphaCursorSupport = true;
+        cursorInfo.MaxX = 64; //TODO figure out correct maximum value
+        cursorInfo.MaxY = 64; //TODO figure out correct maximum value
+        cursorInfo.ColorXorCursorSupport = IDDCX_XOR_CURSOR_SUPPORT_NONE; //TODO play around with XOR cursors
+
+        //prepare IddCxMonitorSetupHardwareCursor arguments
+        IDARG_IN_SETUP_HWCURSOR hwCursor = {};
+        hwCursor.CursorInfo = cursorInfo;
+        hwCursor.hNewCursorDataAvailable = mouseEvent; //this event will be called when new cursor data is available
+
+        NTSTATUS Status = IddCxMonitorSetupHardwareCursor(
+            m_Monitor, //handle to the monitor we want to enable hardware mouse on
+            &hwCursor
+        );
+
+        if (FAILED(Status))
+        {
+            //do error handling
+        	// WdfObjectDelete(SwapChain);
+        }
+    }
 }
 
 void IndirectDeviceContext::UnassignSwapChain()
@@ -1088,3 +1053,114 @@ NTSTATUS IddSampleEvtIddCxMonitorSetGammaRamp(
 }
 
 #pragma endregion
+
+VOID IddSampleIoDeviceControl(
+	_In_ WDFDEVICE Device,
+	_In_ WDFREQUEST Request,
+	_In_ size_t OutputBufferLength,
+	_In_ size_t InputBufferLength,
+	_In_ ULONG IoControlCode
+)
+{
+	NTSTATUS status = STATUS_SUCCESS;
+	size_t bytesReturned = 0;
+
+	switch (IoControlCode) {
+	case IOCTL_ADD_VIRTUAL_DISPLAY: {
+		if (InputBufferLength < sizeof(VIRTUAL_DISPLAY_PARAMS) || OutputBufferLength < sizeof(VIRTUAL_DISPLAY_OUTPUT)) {
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+
+		PVIRTUAL_DISPLAY_PARAMS params;
+		PVIRTUAL_DISPLAY_OUTPUT output;
+		status = WdfRequestRetrieveInputBuffer(Request, sizeof(VIRTUAL_DISPLAY_PARAMS), (PVOID*)&params, NULL);
+		if (!NT_SUCCESS(status)) {
+			break;
+		}
+
+		status = WdfRequestRetrieveOutputBuffer(Request, sizeof(VIRTUAL_DISPLAY_OUTPUT), (PVOID*)&output, NULL);
+		if (!NT_SUCCESS(status)) {
+			break;
+		}
+
+		// Validate and add the virtual display
+		if (params->Width > 0 && params->Height > 0 && params->RefreshRate > 0) {
+			UINT connectorID = connectedDisplayCount;
+			auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(Device);
+			status = pContext->pContext->CreateVirtualMonitor(params->Width, params->Height, params->RefreshRate, params->MonitorGuid, params->DeviceName);
+
+			if (!NT_SUCCESS(status)) {
+				break;
+			}
+
+			output->ConnectorID = connectorID;
+			bytesReturned = sizeof(VIRTUAL_DISPLAY_OUTPUT);
+
+			// Add the monitor to the map
+			// for (auto &it: monitorMap) {
+			// 	if (it.first == params->MonitorGuid) {
+			// 		status = STATUS_INVALID_PARAMETER;
+			// 		break;
+			// 	}
+			// }
+			monitorMap.emplace_back(make_pair(params->MonitorGuid, pContext->pContext->GetLastMonitor()));
+			// monitorMap[params->MonitorGuid] = pContext->pContext->GetLastMonitor();
+			connectedDisplayCount++;
+		}
+		else {
+			status = STATUS_INVALID_PARAMETER;
+		}
+
+		break;
+	}
+	case IOCTL_REMOVE_VIRTUAL_DISPLAY: {
+		if (InputBufferLength < sizeof(VIRTUAL_DISPLAY_REMOVE_PARAMS)) {
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+
+		PVIRTUAL_DISPLAY_REMOVE_PARAMS params;
+		status = WdfRequestRetrieveInputBuffer(Request, sizeof(VIRTUAL_DISPLAY_REMOVE_PARAMS), (PVOID*)&params, NULL);
+		if (!NT_SUCCESS(status)) {
+			break;
+		}
+
+		status = STATUS_NOT_FOUND;
+
+		for (auto it = monitorMap.begin(); it != monitorMap.end(); ++it) {
+			if (it->first == params->MonitorGuid) {
+				// Remove the monitor
+				IDDCX_MONITOR monitor = it->second;
+				IddCxMonitorDeparture(monitor);
+				monitorMap.erase(it);
+				connectedDisplayCount--;
+				status = STATUS_SUCCESS;
+				break;
+			}
+		}
+
+		break;
+	}
+	default:
+		status = STATUS_INVALID_DEVICE_REQUEST;
+		break;
+	}
+
+	WdfRequestCompleteWithInformation(Request, status, bytesReturned);
+}
+
+IDDCX_MONITOR IndirectDeviceContext::GetLastMonitor() const {
+	return m_Monitor;
+}
+
+NTSTATUS IndirectDeviceContext::CreateVirtualMonitor(UINT Width, UINT Height, UINT RefreshRate, GUID MonitorGuid, const WCHAR* DeviceName) {
+	UNREFERENCED_PARAMETER(DeviceName);
+	AddMonitorModes(Width, Height, RefreshRate);
+	return CreateMonitor(connectedDisplayCount, MonitorGuid);
+}
+
+void IndirectDeviceContext::AddMonitorModes(UINT Width, UINT Height, UINT RefreshRate) {
+	// TODO: Check existing
+	monitorModes.push_back(make_tuple(Width, Height, RefreshRate));
+}
