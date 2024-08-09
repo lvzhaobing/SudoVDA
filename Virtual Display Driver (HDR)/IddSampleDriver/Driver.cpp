@@ -639,7 +639,7 @@ void IndirectDeviceContext::FinishInit()
 {
 	Options.Adapter.apply(m_Adapter);
 	for (unsigned int i = 0; i < 2; i++) {
-	    CreateMonitor(i);
+		CreateMonitor(i);
 	}
 }
 
@@ -693,79 +693,58 @@ NTSTATUS IndirectDeviceContext::CreateMonitor(unsigned int index, GUID &monitorI
 	return Status;
 }
 
-// void IndirectDeviceContext::AssignSwapChain(IDDCX_SWAPCHAIN SwapChain, LUID RenderAdapter, HANDLE NewFrameEvent)
-// {
-// 	m_ProcessingThread.reset();
-
-// 	auto Device = make_shared<Direct3DDevice>(RenderAdapter);
-// 	if (FAILED(Device->Init()))
-// 	{
-// 		// It's important to delete the swap-chain if D3D initialization fails, so that the OS knows to generate a new
-// 		// swap-chain and try again.
-// 		WdfObjectDelete(SwapChain);
-// 	}
-// 	else
-// 	{
-// 		// Create a new swap-chain processing thread
-// 		m_ProcessingThread.reset(new SwapChainProcessor(SwapChain, Device, NewFrameEvent));
-// 	}
-// }
-
-void IndirectDeviceContext::AssignSwapChain(IDDCX_SWAPCHAIN SwapChain, LUID RenderAdapter, HANDLE NewFrameEvent)
+void IndirectDeviceContext::AssignSwapChain(IDDCX_MONITOR &Monitor, IDDCX_SWAPCHAIN SwapChain, LUID RenderAdapter, HANDLE NewFrameEvent)
 {
-    m_ProcessingThread.reset();
+	m_ProcessingThread.reset();
 
-    auto Device = make_shared<Direct3DDevice>(RenderAdapter);
-    if (FAILED(Device->Init()))
-    {
-        // It's important to delete the swap-chain if D3D initialization fails, so that the OS knows to generate a new
-        // swap-chain and try again.
-        WdfObjectDelete(SwapChain);
-    }
-    else
-    {
-        // Create a new swap-chain processing thread
-        m_ProcessingThread.reset(new SwapChainProcessor(SwapChain, Device, NewFrameEvent));
+	auto Device = make_shared<Direct3DDevice>(RenderAdapter);
+	if (FAILED(Device->Init()))
+	{
+		// It's important to delete the swap-chain if D3D initialization fails, so that the OS knows to generate a new
+		// swap-chain and try again.
+		WdfObjectDelete(SwapChain);
+	}
+	else
+	{
+		// Create a new swap-chain processing thread
+		m_ProcessingThread.reset(new SwapChainProcessor(SwapChain, Device, NewFrameEvent));
 
+		//create an event to get notified new cursor data
+		HANDLE mouseEvent = CreateEventA(
+			nullptr, //TODO set proper SECURITY_ATTRIBUTES
+			false,
+			false,
+			"arbitraryMouseEventName");;
 
-        //create an event to get notified new cursor data
-        HANDLE mouseEvent = CreateEventA(
-            nullptr, //TODO set proper SECURITY_ATTRIBUTES
-            false, 
-            false,
-            "arbitraryMouseEventName");;
+		if (!mouseEvent)
+		{
+			//do error handling
+			return;
+		}
 
-        if (!mouseEvent)
-        {
-            //do error handling
-        	// WdfObjectDelete(SwapChain);
-        } 
+		//set up cursor capabilities
+		IDDCX_CURSOR_CAPS cursorInfo = {};
+		cursorInfo.Size = sizeof(cursorInfo);
+		cursorInfo.ColorXorCursorSupport = IDDCX_XOR_CURSOR_SUPPORT_FULL; //TODO play around with XOR cursors
+		cursorInfo.AlphaCursorSupport = true;
+		cursorInfo.MaxX = 64; //TODO figure out correct maximum value
+		cursorInfo.MaxY = 64; //TODO figure out correct maximum value
 
+		//prepare IddCxMonitorSetupHardwareCursor arguments
+		IDARG_IN_SETUP_HWCURSOR hwCursor = {};
+		hwCursor.CursorInfo = cursorInfo;
+		hwCursor.hNewCursorDataAvailable = mouseEvent; //this event will be called when new cursor data is available
 
-        //set up cursor capabilities
-        IDDCX_CURSOR_CAPS cursorInfo = {};
-        cursorInfo.Size = sizeof(cursorInfo);
-        cursorInfo.AlphaCursorSupport = true;
-        cursorInfo.MaxX = 64; //TODO figure out correct maximum value
-        cursorInfo.MaxY = 64; //TODO figure out correct maximum value
-        cursorInfo.ColorXorCursorSupport = IDDCX_XOR_CURSOR_SUPPORT_NONE; //TODO play around with XOR cursors
+		NTSTATUS Status = IddCxMonitorSetupHardwareCursor(
+			Monitor, //handle to the monitor we want to enable hardware mouse on
+			&hwCursor
+		);
 
-        //prepare IddCxMonitorSetupHardwareCursor arguments
-        IDARG_IN_SETUP_HWCURSOR hwCursor = {};
-        hwCursor.CursorInfo = cursorInfo;
-        hwCursor.hNewCursorDataAvailable = mouseEvent; //this event will be called when new cursor data is available
-
-        NTSTATUS Status = IddCxMonitorSetupHardwareCursor(
-            m_Monitor, //handle to the monitor we want to enable hardware mouse on
-            &hwCursor
-        );
-
-        if (FAILED(Status))
-        {
-            //do error handling
-        	// WdfObjectDelete(SwapChain);
-        }
-    }
+		if (FAILED(Status))
+		{
+			//do error handling
+		}
+	}
 }
 
 void IndirectDeviceContext::UnassignSwapChain()
@@ -921,7 +900,7 @@ _Use_decl_annotations_
 NTSTATUS IddSampleMonitorAssignSwapChain(IDDCX_MONITOR MonitorObject, const IDARG_IN_SETSWAPCHAIN* pInArgs)
 {
 	auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(MonitorObject);
-	pContext->pContext->AssignSwapChain(pInArgs->hSwapChain, pInArgs->RenderAdapterLuid, pInArgs->hNextSurfaceAvailable);
+	pContext->pContext->AssignSwapChain(MonitorObject, pInArgs->hSwapChain, pInArgs->RenderAdapterLuid, pInArgs->hNextSurfaceAvailable);
 	return STATUS_SUCCESS;
 }
 
