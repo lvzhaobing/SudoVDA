@@ -33,21 +33,10 @@ namespace Microsoft
 {
     namespace IndirectDisp
     {
-        /// <summary>
-        /// Manages the creation and lifetime of a Direct3D render device.
-        /// </summary>
-        struct IndirectSampleMonitor
-        {
-            static constexpr size_t szEdidBlock = 128;
-            static constexpr size_t szModeList = 3;
-
-            const BYTE pEdidBlock[szEdidBlock];
-            const struct SampleMonitorMode {
-                DWORD Width;
-                DWORD Height;
-                DWORD VSync;
-            } pModeList[szModeList];
-            const DWORD ulPreferredModeIdx;
+        struct SampleMonitorMode {
+            DWORD Width;
+            DWORD Height;
+            DWORD VSync;
         };
 
         /// <summary>
@@ -103,6 +92,7 @@ namespace Microsoft
             void FinishInit();
 
             void CreateMonitor();
+            void CreateMonitor(uint32_t serial, const char* serialString, const char* displayName,  const GUID& containerId);
 
         protected:
             WDFDEVICE m_WdfDevice;

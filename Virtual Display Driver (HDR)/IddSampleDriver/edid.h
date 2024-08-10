@@ -1,6 +1,7 @@
 #pragma once
 
 #define EDID_OFFSET_SERIAL 0x0C
+#define EDID_OFFSET_SERIALSTR 0x5F
 #define EDID_OFFSET_PRODNAME 0x71
 #define EDID_STRING_FIELD_SIZE 13
 
@@ -15,7 +16,7 @@ const BYTE edid_base[] = {
     0x00, 0x53, 0x75, 0x64, 0x6f, 0x56, 0x44, 0x41, 0x20, 0x44, 0x49, 0x53, 0x50, 0x0a, 0x00, 0xfd,
 };
 
-uint8_t* generate_edid(uint32_t serial, const char* prod_name) {
+uint8_t* generate_edid(uint32_t serial, const char* serial_str, const char* prod_name) {
     uint8_t* edid_data = (uint8_t*)malloc(sizeof(edid_base));
 
     if (!edid_data) {
@@ -24,30 +25,54 @@ uint8_t* generate_edid(uint32_t serial, const char* prod_name) {
 
     memcpy(edid_data, edid_base, sizeof(edid_base));
 
-    // (void)serial;
-    // (void)prod_name;
-
-    edid_data[EDID_OFFSET_PRODNAME] = 0x54;
-    edid_data[127] = 0x03;
-
-    size_t pn_len = strlen(prod_name);
-    if (pn_len > EDID_STRING_FIELD_SIZE) {
-        pn_len = EDID_STRING_FIELD_SIZE;
-    }
-    size_t pn_pad = EDID_STRING_FIELD_SIZE - pn_len;
-
     memcpy(edid_data + EDID_OFFSET_SERIAL, &serial, 4);
-    memcpy(edid_data + EDID_OFFSET_PRODNAME, prod_name, pn_len);
-    memset(edid_data + EDID_OFFSET_PRODNAME + pn_len, ' ', pn_pad);
 
-    if (pn_pad > 0) {
-        edid_data[EDID_OFFSET_PRODNAME + pn_len] = 0x0A;
-        pn_pad -= 1;
-        pn_len += 1;
+    size_t pn_len, pn_pad;
+
+    if (serial_str) {
+        pn_len = strlen(serial_str);
+        if (pn_len) {
+            if (pn_len > EDID_STRING_FIELD_SIZE) {
+                pn_len = EDID_STRING_FIELD_SIZE;
+            }
+            pn_pad = EDID_STRING_FIELD_SIZE - pn_len;
+
+            memcpy(edid_data + EDID_OFFSET_SERIALSTR, serial_str, pn_len);
+            memset(edid_data + EDID_OFFSET_SERIALSTR + pn_len, ' ', pn_pad);
+
+            if (pn_pad > 0) {
+                edid_data[EDID_OFFSET_SERIALSTR + pn_len] = 0x0A;
+                pn_pad -= 1;
+                pn_len += 1;
+            }
+
+            if (pn_pad) {
+                memset(edid_data + EDID_OFFSET_SERIALSTR + pn_len, ' ', pn_pad);
+            }
+        }
     }
 
-    if (pn_pad) {
-        memset(edid_data + EDID_OFFSET_PRODNAME + pn_len, ' ', pn_pad);
+    if (prod_name) {
+        pn_len = strlen(prod_name);
+        if (pn_len) {
+            if (pn_len > EDID_STRING_FIELD_SIZE) {
+                pn_len = EDID_STRING_FIELD_SIZE;
+            }
+            pn_pad = EDID_STRING_FIELD_SIZE - pn_len;
+
+            memcpy(edid_data + EDID_OFFSET_PRODNAME, prod_name, pn_len);
+            memset(edid_data + EDID_OFFSET_PRODNAME + pn_len, ' ', pn_pad);
+
+            if (pn_pad > 0) {
+                edid_data[EDID_OFFSET_PRODNAME + pn_len] = 0x0A;
+                pn_pad -= 1;
+                pn_len += 1;
+            }
+
+            if (pn_pad) {
+                memset(edid_data + EDID_OFFSET_PRODNAME + pn_len, ' ', pn_pad);
+            }
+        }
     }
 
     uint32_t sum = 0;
