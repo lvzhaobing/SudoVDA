@@ -3,6 +3,7 @@
 #include <wrl/client.h> 	// For ComPtr
 #include <dxgi.h>       	// For IDXGIAdapter, IDXGIFactory1
 #include <algorithm>    	// For sort
+#include <string>
 
 using namespace std;
 using namespace Microsoft::WRL;
@@ -54,68 +55,46 @@ public:
     bool hasTargetAdapter{}; // Indicates if a target adapter is selected
     LUID adapterLuid{};      // Adapter's unique identifier (LUID)
     wstring target_name{};   // Target adapter name
+    std::vector<GPUInfo> availableGPUs;
+
+    AdapterOption() {
+        availableGPUs = getAvailableGPUs();
+    }
 
     // Select the best GPU based on dedicated video memory
-    wstring selectBestGPU() {
-        auto gpus = getAvailableGPUs();
-        if (gpus.empty()) {
-            return L""; // Error check for headless / vm
+    void selectBestGPU() {
+        if (availableGPUs.empty()) {
+            hasTargetAdapter = false;
+            adapterLuid = {};
+            // target_name = {};
+            return;
         }
 
         // Sort GPUs by dedicated video memory in descending order
-        sort(gpus.begin(), gpus.end(), CompareGPUs);
-        auto bestGPU = gpus.front(); // Get the GPU with the most memory
+        sort(availableGPUs.begin(), availableGPUs.end(), CompareGPUs);
+        auto bestGPU = availableGPUs.front(); // Get the GPU with the most memory
 
-        return bestGPU.name;
-    }
-
-    // Load friendlyname from a file OR select the best GPU 
-    void load(const wchar_t* path) {
-        ifstream ifs{ path };
-
-        if (!ifs.is_open()) {
-            target_name = selectBestGPU();
-        }
-        else {
-            string line;
-            getline(ifs, line);
-            target_name.assign(line.begin(), line.end());
-        }
-
-        // Find and set the adapter based on the target name
-        if (!findAndSetAdapter(target_name)) {
-            // If the adapter is not found, select the best GPU and retry
-            target_name = selectBestGPU();
-            findAndSetAdapter(target_name);
-        }
+        target_name = bestGPU.name;
+        adapterLuid = bestGPU.desc.AdapterLuid;
+        hasTargetAdapter = true;
     }
 
     // Set the target adapter from a given name and validate it
-    void xmlprovide(const wstring& xtarg) {
-        target_name = xtarg;
-        if (!findAndSetAdapter(target_name)) {
+    LUID selectGPU(const wstring& adapterName) {
+        if (!findAndSetAdapter(adapterName)) {
             // If the adapter is not found, select the best GPU and retry
-            target_name = selectBestGPU();
-            findAndSetAdapter(target_name);
+            selectBestGPU();
         }
-    }
 
-    // Apply the adapter settings to the specified adapter
-    void apply(const IDDCX_ADAPTER& adapter) {
-        if (hasTargetAdapter && IDD_IS_FUNCTION_AVAILABLE(IddCxAdapterSetRenderAdapter)) {
-            IDARG_IN_ADAPTERSETRENDERADAPTER arg{};
-            arg.PreferredRenderAdapter = adapterLuid;
-            IddCxAdapterSetRenderAdapter(adapter, &arg);
-        }
+        return adapterLuid;
     }
 
 private:
     // Find and set the adapter by its name
     bool findAndSetAdapter(const wstring& adapterName) {
-        auto gpus = getAvailableGPUs();
-
+        target_name = adapterName;
         // Iterate through all available GPUs
-        for (const auto& gpu : gpus) {
+        for (const auto& gpu : availableGPUs) {
             if (_wcsicmp(gpu.name.c_str(), adapterName.c_str()) == 0) {
                 adapterLuid = gpu.desc.AdapterLuid; // Set the adapter LUID
                 hasTargetAdapter = true; // Indicate that a target adapter is selected
@@ -123,6 +102,7 @@ private:
             }
         }
 
+        adapterLuid = {};
         hasTargetAdapter = false; // Indicate that no target adapter is selected
         return false;
     }

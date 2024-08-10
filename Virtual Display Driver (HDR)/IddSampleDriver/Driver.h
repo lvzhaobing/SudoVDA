@@ -36,6 +36,23 @@ namespace Microsoft
         /// <summary>
         /// Manages the creation and lifetime of a Direct3D render device.
         /// </summary>
+        struct IndirectSampleMonitor
+        {
+            static constexpr size_t szEdidBlock = 128;
+            static constexpr size_t szModeList = 3;
+
+            const BYTE pEdidBlock[szEdidBlock];
+            const struct SampleMonitorMode {
+                DWORD Width;
+                DWORD Height;
+                DWORD VSync;
+            } pModeList[szModeList];
+            const DWORD ulPreferredModeIdx;
+        };
+
+        /// <summary>
+        /// Manages the creation and lifetime of a Direct3D render device.
+        /// </summary>
         struct Direct3DDevice
         {
             Direct3DDevice(LUID AdapterLuid);
@@ -64,7 +81,6 @@ namespace Microsoft
             void Run();
             void RunCore();
 
-        public:
             IDDCX_SWAPCHAIN m_hSwapChain;
             std::shared_ptr<Direct3DDevice> m_Device;
             HANDLE m_hAvailableBufferEvent;
@@ -78,36 +94,33 @@ namespace Microsoft
         class IndirectDeviceContext
         {
         public:
+            uint8_t connectedDisplayCount = 0;
+
             IndirectDeviceContext(_In_ WDFDEVICE WdfDevice);
             virtual ~IndirectDeviceContext();
 
             void InitAdapter();
             void FinishInit();
 
-            void CreateMonitor(unsigned int index);
-            NTSTATUS CreateMonitor(unsigned int index, GUID &monitorID);
-
-            void AssignSwapChain(IDDCX_MONITOR &Monitor, IDDCX_SWAPCHAIN SwapChain, LUID RenderAdapter, HANDLE NewFrameEvent);
-            void UnassignSwapChain();
-
-            IDDCX_MONITOR GetLastMonitor() const;
-
-            NTSTATUS CreateVirtualMonitor(UINT Width, UINT Height, UINT RefreshRate, GUID MonitorGuid, const WCHAR* DeviceName);
-
-            void AddMonitorModes(UINT Width, UINT Height, UINT RefreshRate);
+            void CreateMonitor();
 
         protected:
-
             WDFDEVICE m_WdfDevice;
             IDDCX_ADAPTER m_Adapter;
-            IDDCX_MONITOR m_Monitor;
-            IDDCX_MONITOR m_Monitor2;
-
-            std::unique_ptr<SwapChainProcessor> m_ProcessingThread;
-
-        public:
-            static const DISPLAYCONFIG_VIDEO_SIGNAL_INFO s_KnownMonitorModes[];
-            static const BYTE s_KnownMonitorEdid[];
         };
+
+        class IndirectMonitorContext
+        {
+        public:
+            IndirectMonitorContext(_In_ IDDCX_MONITOR Monitor);
+            virtual ~IndirectMonitorContext();
+
+            void AssignSwapChain(const IDDCX_MONITOR& MonitorObject, const IDDCX_SWAPCHAIN& SwapChain, const LUID& RenderAdapter, const HANDLE& NewFrameEvent);
+            void UnassignSwapChain();
+
+        private:
+            IDDCX_MONITOR m_Monitor;
+            std::unique_ptr<SwapChainProcessor> m_ProcessingThread;
+        } ;
     }
 }
