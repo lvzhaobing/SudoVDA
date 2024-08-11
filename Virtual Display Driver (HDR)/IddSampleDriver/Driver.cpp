@@ -124,11 +124,34 @@ static IDDCX_MONITOR_MODE CreateIddCxMonitorMode(DWORD Width, DWORD Height, DWOR
 	return Mode;
 }
 
+static IDDCX_MONITOR_MODE2 CreateIddCxMonitorMode2(DWORD Width, DWORD Height, DWORD VSync, IDDCX_MONITOR_MODE_ORIGIN Origin = IDDCX_MONITOR_MODE_ORIGIN_DRIVER)
+{
+	IDDCX_MONITOR_MODE2 Mode = {};
+
+	Mode.Size = sizeof(Mode);
+	Mode.Origin = Origin;
+	Mode.BitsPerComponent.Rgb = IDDCX_BITS_PER_COMPONENT_8 | IDDCX_BITS_PER_COMPONENT_10;
+	FillSignalInfo(Mode.MonitorVideoSignalInfo, Width, Height, VSync, true);
+
+	return Mode;
+}
+
 static IDDCX_TARGET_MODE CreateIddCxTargetMode(DWORD Width, DWORD Height, DWORD VSync)
 {
 	IDDCX_TARGET_MODE Mode = {};
 
 	Mode.Size = sizeof(Mode);
+	FillSignalInfo(Mode.TargetVideoSignalInfo.targetVideoSignalInfo, Width, Height, VSync, false);
+
+	return Mode;
+}
+
+static IDDCX_TARGET_MODE2 CreateIddCxTargetMode2(DWORD Width, DWORD Height, DWORD VSync)
+{
+	IDDCX_TARGET_MODE2 Mode = {};
+
+	Mode.Size = sizeof(Mode);
+	Mode.BitsPerComponent.Rgb = IDDCX_BITS_PER_COMPONENT_8 | IDDCX_BITS_PER_COMPONENT_10;
 	FillSignalInfo(Mode.TargetVideoSignalInfo.targetVideoSignalInfo, Width, Height, VSync, false);
 
 	return Mode;
@@ -150,6 +173,14 @@ EVT_IDD_CX_MONITOR_QUERY_TARGET_MODES IddSampleMonitorQueryModes;
 
 EVT_IDD_CX_MONITOR_ASSIGN_SWAPCHAIN IddSampleMonitorAssignSwapChain;
 EVT_IDD_CX_MONITOR_UNASSIGN_SWAPCHAIN IddSampleMonitorUnassignSwapChain;
+
+EVT_IDD_CX_ADAPTER_QUERY_TARGET_INFO IddSampleAdapterQueryTargetInfo;
+EVT_IDD_CX_MONITOR_SET_DEFAULT_HDR_METADATA IddSampleMonitorSetDefaultHdrMetadata;
+EVT_IDD_CX_PARSE_MONITOR_DESCRIPTION2 IddSampleParseMonitorDescription2;
+EVT_IDD_CX_MONITOR_QUERY_TARGET_MODES2 IddSampleMonitorQueryModes2;
+EVT_IDD_CX_ADAPTER_COMMIT_MODES2 IddSampleAdapterCommitModes2;
+
+EVT_IDD_CX_MONITOR_SET_GAMMA_RAMP IddSampleMonitorSetGammaRamp;
 
 struct IndirectDeviceContextWrapper
 {
@@ -175,7 +206,6 @@ struct IndirectMonitorContextWrapper
 
 // This macro creates the methods for accessing an IndirectDeviceContextWrapper as a context for a WDF object
 WDF_DECLARE_CONTEXT_TYPE(IndirectDeviceContextWrapper);
-
 WDF_DECLARE_CONTEXT_TYPE(IndirectMonitorContextWrapper);
 
 extern "C" BOOL WINAPI DllMain(
@@ -275,12 +305,43 @@ NTSTATUS IddSampleDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
 
 	IddConfig.EvtIddCxAdapterInitFinished = IddSampleAdapterInitFinished;
 
-	IddConfig.EvtIddCxParseMonitorDescription = IddSampleParseMonitorDescription;
 	IddConfig.EvtIddCxMonitorGetDefaultDescriptionModes = IddSampleMonitorGetDefaultModes;
-	IddConfig.EvtIddCxMonitorQueryTargetModes = IddSampleMonitorQueryModes;
-	IddConfig.EvtIddCxAdapterCommitModes = IddSampleAdapterCommitModes;
 	IddConfig.EvtIddCxMonitorAssignSwapChain = IddSampleMonitorAssignSwapChain;
 	IddConfig.EvtIddCxMonitorUnassignSwapChain = IddSampleMonitorUnassignSwapChain;
+
+	IddConfig.EvtIddCxParseMonitorDescription = IddSampleParseMonitorDescription;
+	IddConfig.EvtIddCxMonitorQueryTargetModes = IddSampleMonitorQueryModes;
+	IddConfig.EvtIddCxAdapterCommitModes = IddSampleAdapterCommitModes;
+
+	if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxAdapterQueryTargetInfo))
+	{
+		IddConfig.EvtIddCxAdapterQueryTargetInfo = IddSampleAdapterQueryTargetInfo;
+	// }
+
+	// if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxMonitorSetDefaultHdrMetaData))
+    // {
+		IddConfig.EvtIddCxMonitorSetDefaultHdrMetaData = IddSampleMonitorSetDefaultHdrMetadata;
+	// }
+
+	// if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxParseMonitorDescription2))
+    // {
+		IddConfig.EvtIddCxParseMonitorDescription2 = IddSampleParseMonitorDescription2;
+	// }
+
+	// if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxMonitorQueryTargetModes2))
+    // {
+		IddConfig.EvtIddCxMonitorQueryTargetModes2 = IddSampleMonitorQueryModes2;
+	// }
+
+	// if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxAdapterCommitModes2))
+    // {
+		IddConfig.EvtIddCxAdapterCommitModes2 = IddSampleAdapterCommitModes2;
+	// }
+
+	// if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxMonitorSetGammaRamp))
+    // {
+		IddConfig.EvtIddCxMonitorSetGammaRamp = IddSampleMonitorSetGammaRamp;
+	}
 
 	Status = IddCxDeviceInitConfig(pDeviceInit, &IddConfig);
 	if (!NT_SUCCESS(Status))
@@ -339,8 +400,8 @@ Direct3DDevice::Direct3DDevice()
 {
 	AdapterOption adapterOpt = AdapterOption();
 
-	// adapterOpt.selectGPU(gpuname);
-	adapterOpt.selectBestGPU();
+	adapterOpt.selectGPU(gpuname);
+	// adapterOpt.selectBestGPU();
 
 	AdapterLuid = adapterOpt.adapterLuid;
 }
@@ -446,9 +507,25 @@ void SwapChainProcessor::RunCore()
 	{
 		ComPtr<IDXGIResource> AcquiredBuffer;
 
+		IDXGIResource* pSurface;
+
+		if (IDD_IS_FUNCTION_AVAILABLE(IddCxSwapChainReleaseAndAcquireBuffer2)) {
+			IDARG_IN_RELEASEANDACQUIREBUFFER2 BufferInArgs = {};
+			BufferInArgs.Size = sizeof(BufferInArgs);
+			IDARG_OUT_RELEASEANDACQUIREBUFFER2 Buffer = {};
+			hr = IddCxSwapChainReleaseAndAcquireBuffer2(m_hSwapChain, &BufferInArgs, &Buffer);
+			pSurface = Buffer.MetaData.pSurface;
+		}
+		else
+		{
+			IDARG_OUT_RELEASEANDACQUIREBUFFER Buffer = {};
+			hr = IddCxSwapChainReleaseAndAcquireBuffer(m_hSwapChain, &Buffer);
+			pSurface = Buffer.MetaData.pSurface;
+		}
+
 		// Ask for the next buffer from the producer
-		IDARG_OUT_RELEASEANDACQUIREBUFFER Buffer = {};
-		hr = IddCxSwapChainReleaseAndAcquireBuffer(m_hSwapChain, &Buffer);
+		// IDARG_OUT_RELEASEANDACQUIREBUFFER Buffer = {};
+		// hr = IddCxSwapChainReleaseAndAcquireBuffer(m_hSwapChain, &Buffer);
 
 		// AcquireBuffer immediately returns STATUS_PENDING if no buffer is yet available
 		if (hr == E_PENDING)
@@ -480,7 +557,7 @@ void SwapChainProcessor::RunCore()
 		else if (SUCCEEDED(hr))
 		{
 			// We have new frame to process, the surface has a reference on it that the driver has to release
-			AcquiredBuffer.Attach(Buffer.MetaData.pSurface);
+			AcquiredBuffer.Attach(pSurface);
 
 			// ==============================
 			// TODO: Process the frame here
@@ -551,6 +628,10 @@ void IndirectDeviceContext::InitAdapter()
 	IDDCX_ADAPTER_CAPS AdapterCaps = {};
 	AdapterCaps.Size = sizeof(AdapterCaps);
 
+	if (IDD_IS_FUNCTION_AVAILABLE(IddCxSwapChainReleaseAndAcquireBuffer2)) {
+		AdapterCaps.Flags = IDDCX_ADAPTER_FLAGS_CAN_PROCESS_FP16 | IDDCX_ADAPTER_FLAGS_REMOTE_ALL_TARGET_MODES_MONITOR_COMPATIBLE;
+	}
+
 	// Declare basic feature support for the adapter (required)
 	AdapterCaps.MaxMonitorsSupported = IDD_SAMPLE_MONITOR_COUNT;
 	AdapterCaps.EndPointDiagnostics.Size = sizeof(AdapterCaps.EndPointDiagnostics);
@@ -558,7 +639,7 @@ void IndirectDeviceContext::InitAdapter()
 	AdapterCaps.EndPointDiagnostics.TransmissionType = IDDCX_TRANSMISSION_TYPE_WIRED_OTHER;
 
 	// Declare your device strings for telemetry (required)
-	AdapterCaps.EndPointDiagnostics.pEndPointFriendlyName = L"SudoMaker HDR Virtual Display Adapter";
+	AdapterCaps.EndPointDiagnostics.pEndPointFriendlyName = L"SudoMaker Virtual Display Adapter";
 	AdapterCaps.EndPointDiagnostics.pEndPointManufacturerName = L"SudoMaker";
 	AdapterCaps.EndPointDiagnostics.pEndPointModelName = L"SudoVDA";
 
@@ -593,46 +674,12 @@ void IndirectDeviceContext::InitAdapter()
 	}
 }
 
-void IndirectDeviceContext::FinishInit()
-{
-	for (uint8_t i = 0; i < 3; i++) {
-		CreateMonitor();
-	}
-}
-
 NTSTATUS IndirectDeviceContext::ConnectMonitor(IndirectMonitorContext* pContext) {
 	// Tell the OS that the monitor has been plugged in
 	IDARG_OUT_MONITORARRIVAL ArrivalOut;
 	NTSTATUS Status = IddCxMonitorArrival(pContext->GetMonitor(), &ArrivalOut);
 
 	return Status;
-}
-
-void IndirectDeviceContext::CreateMonitor() {
-	std::string idx = std::to_string(connectedDisplayCount + 1);
-	std::string serialStr = "VDD2408";
-	serialStr += idx;
-	std::string dispName = "SudoVDD #";
-	dispName += idx;
-	GUID containerId;
-	CoCreateGuid(&containerId);
-	uint8_t* edidData = generate_edid(0xAA55BB01 + connectedDisplayCount, serialStr.c_str(), dispName.c_str());
-
-	VirtualMonitorInfo mInfo = {
-		containerId,
-		edidData,
-		{3000 + (uint32_t)connectedDisplayCount * 2, 2120 + (uint32_t)connectedDisplayCount, 120 + (uint32_t)connectedDisplayCount},
-		nullptr
-	};
-
-	IndirectMonitorContext* ctx = CreateMonitor(edidData, containerId);
-
-	mInfo.MonitorCtx = ctx;
-
-	ctx->monitorInfo = mInfo;
-	monitorCtxList.emplace_back(mInfo);
-
-	ConnectMonitor(ctx);
 }
 
 IndirectMonitorContext* IndirectDeviceContext::CreateMonitor(uint8_t* edidData, const GUID& containerId) {
@@ -658,17 +705,6 @@ IndirectMonitorContext* IndirectDeviceContext::CreateMonitor(uint8_t* edidData, 
 	MonitorInfo.MonitorDescription.DataSize = sizeof(edid_base);
 	MonitorInfo.MonitorDescription.pData = edidData;
 	MonitorInfo.MonitorContainerId = containerId;
-
-	// ==============================
-	// TODO: The monitor's container ID should be distinct from "this" device's container ID if the monitor is not
-	// permanently attached to the display adapter device object. The container ID is typically made unique for each
-	// monitor and can be used to associate the monitor with other devices, like audio or input devices. In this
-	// sample we generate a random container ID GUID, but it's best practice to choose a stable container ID for a
-	// unique monitor or to use "this" device's container ID for a permanent/integrated monitor.
-	// ==============================
-
-	// Create a container ID
-	// CoCreateGuid(&MonitorInfo.MonitorContainerId);
 
 	IDARG_IN_MONITORCREATE MonitorCreate = {};
 	MonitorCreate.ObjectAttributes = &Attr;
@@ -768,16 +804,45 @@ void IndirectMonitorContext::UnassignSwapChain()
 
 #pragma region DDI Callbacks
 
+void IndirectDeviceContext::CreateMonitor() {
+	std::string idx = std::to_string(connectedDisplayCount + 1);
+	std::string serialStr = "VDD2408";
+	serialStr += idx;
+	std::string dispName = "SudoVDD #";
+	dispName += idx;
+	GUID containerId;
+	CoCreateGuid(&containerId);
+	uint8_t* edidData = generate_edid(0xAA55BB01 + connectedDisplayCount, serialStr.c_str(), dispName.c_str());
+
+	VirtualMonitorInfo mInfo = {
+		containerId,
+		edidData,
+		{3000 + (uint32_t)connectedDisplayCount * 2, 2120 + (uint32_t)connectedDisplayCount, 120},
+		nullptr
+	};
+
+	IndirectMonitorContext* ctx = CreateMonitor(edidData, containerId);
+
+	mInfo.MonitorCtx = ctx;
+
+	ctx->monitorInfo = mInfo;
+	monitorCtxList.emplace_back(mInfo);
+
+	ConnectMonitor(ctx);
+}
+
 _Use_decl_annotations_
 NTSTATUS IddSampleAdapterInitFinished(IDDCX_ADAPTER AdapterObject, const IDARG_IN_ADAPTER_INIT_FINISHED* pInArgs)
 {
-	// This is called when the OS has finished setting up the adapter for use by the IddCx driver. It's now possible
-	// to report attached monitors.
+	// UNREFERENCED_PARAMETER(AdapterObject);
+	// UNREFERENCED_PARAMETER(pInArgs);
 
 	auto* pDeviceContextWrapper = WdfObjectGet_IndirectDeviceContextWrapper(AdapterObject);
 	if (NT_SUCCESS(pInArgs->AdapterInitStatus))
 	{
-		pDeviceContextWrapper->pContext->FinishInit();
+		for (size_t i = 0; i < 3; i++) {
+			pDeviceContextWrapper->pContext->CreateMonitor();
+		}
 	}
 
 	return STATUS_SUCCESS;
@@ -796,6 +861,18 @@ NTSTATUS IddSampleAdapterCommitModes(IDDCX_ADAPTER AdapterObject, const IDARG_IN
 	// through pInArgs->pPaths and look for IDDCX_PATH_FLAGS_ACTIVE. Any path not active is inactive (e.g. the monitor
 	// should be turned off).
 	// ==============================
+
+	return STATUS_SUCCESS;
+}
+
+_Use_decl_annotations_
+NTSTATUS IddSampleAdapterCommitModes2(
+	IDDCX_ADAPTER AdapterObject,
+	const IDARG_IN_COMMITMODES2* pInArgs
+)
+{
+	UNREFERENCED_PARAMETER(AdapterObject);
+	UNREFERENCED_PARAMETER(pInArgs);
 
 	return STATUS_SUCCESS;
 }
@@ -846,6 +923,63 @@ NTSTATUS IddSampleParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION
 
 		if (pPreferredMode && pPreferredMode->Width) {
 			pInArgs->pMonitorModes[std::size(s_DefaultModes)] = CreateIddCxMonitorMode(
+				pPreferredMode->Width,
+				pPreferredMode->Height,
+				pPreferredMode->VSync,
+				IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR
+			);
+
+			pOutArgs->PreferredMonitorModeIdx = std::size(s_DefaultModes);
+		}
+
+		return STATUS_SUCCESS;
+	}
+}
+
+_Use_decl_annotations_
+NTSTATUS IddSampleParseMonitorDescription2(
+	const IDARG_IN_PARSEMONITORDESCRIPTION2* pInArgs,
+	IDARG_OUT_PARSEMONITORDESCRIPTION* pOutArgs
+)
+{
+	if (pInArgs->MonitorDescription.DataSize != sizeof(edid_base))
+		return STATUS_INVALID_PARAMETER;
+
+	pOutArgs->MonitorModeBufferOutputCount = std::size(s_DefaultModes);
+
+	VirtualMonitorMode* pPreferredMode = nullptr;
+
+	for (auto &it: monitorCtxList) {
+		if (memcmp(pInArgs->MonitorDescription.pData, it.EdidData, sizeof(edid_base)) == 0) {
+			if (it.PreferredMode.Width) {
+				pOutArgs->MonitorModeBufferOutputCount += 1;
+				pPreferredMode = &it.PreferredMode;
+			}
+			break;
+		}
+	}
+
+	if (pInArgs->MonitorModeBufferInputCount < pOutArgs->MonitorModeBufferOutputCount)
+	{
+		// Return success if there was no buffer, since the caller was only asking for a count of modes
+		return (pInArgs->MonitorModeBufferInputCount > 0) ? STATUS_BUFFER_TOO_SMALL : STATUS_SUCCESS;
+	}
+	else
+	{
+		for (DWORD ModeIndex = 0; ModeIndex < std::size(s_DefaultModes); ModeIndex++)
+		{
+			pInArgs->pMonitorModes[ModeIndex] = CreateIddCxMonitorMode2(
+				s_DefaultModes[ModeIndex].Width,
+				s_DefaultModes[ModeIndex].Height,
+				s_DefaultModes[ModeIndex].VSync,
+				IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR
+			);
+		}
+
+		pOutArgs->PreferredMonitorModeIdx = 1;
+
+		if (pPreferredMode && pPreferredMode->Width) {
+			pInArgs->pMonitorModes[std::size(s_DefaultModes)] = CreateIddCxMonitorMode2(
 				pPreferredMode->Width,
 				pPreferredMode->Height,
 				pPreferredMode->VSync,
@@ -930,6 +1064,48 @@ NTSTATUS IddSampleMonitorQueryModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_
 }
 
 _Use_decl_annotations_
+NTSTATUS IddSampleMonitorQueryModes2(IDDCX_MONITOR MonitorObject, const IDARG_IN_QUERYTARGETMODES2* pInArgs, IDARG_OUT_QUERYTARGETMODES* pOutArgs)
+{
+	UNREFERENCED_PARAMETER(MonitorObject);
+
+	vector<IDDCX_TARGET_MODE2> TargetModes;
+
+	// Create a set of modes supported for frame processing and scan-out. These are typically not based on the
+	// monitor's descriptor and instead are based on the static processing capability of the device. The OS will
+	// report the available set of modes for a given output as the intersection of monitor modes with target modes.
+
+	for (size_t i = 0; i < std::size(s_DefaultModes); i++) {
+		if (i == std::size(s_DefaultModes) - 1) {
+
+		} else {
+			TargetModes.push_back(CreateIddCxTargetMode2(
+				s_DefaultModes[i].Width,
+				s_DefaultModes[i].Height,
+				s_DefaultModes[i].VSync
+			));
+		}
+	}
+
+	auto* pMonitorContextWrapper = WdfObjectGet_IndirectMonitorContextWrapper(MonitorObject);
+	if (pMonitorContextWrapper->pContext->monitorInfo.PreferredMode.Width) {
+		TargetModes.push_back(CreateIddCxTargetMode2(
+			pMonitorContextWrapper->pContext->monitorInfo.PreferredMode.Width,
+			pMonitorContextWrapper->pContext->monitorInfo.PreferredMode.Height,
+			pMonitorContextWrapper->pContext->monitorInfo.PreferredMode.VSync
+		));
+	}
+
+	pOutArgs->TargetModeBufferOutputCount = (UINT) TargetModes.size();
+
+	if (pInArgs->TargetModeBufferInputCount >= TargetModes.size())
+	{
+		copy(TargetModes.begin(), TargetModes.end(), pInArgs->pTargetModes);
+	}
+
+	return STATUS_SUCCESS;
+}
+
+_Use_decl_annotations_
 NTSTATUS IddSampleMonitorAssignSwapChain(IDDCX_MONITOR MonitorObject, const IDARG_IN_SETSWAPCHAIN* pInArgs)
 {
 	auto* pMonitorContextWrapper = WdfObjectGet_IndirectMonitorContextWrapper(MonitorObject);
@@ -942,6 +1118,45 @@ NTSTATUS IddSampleMonitorUnassignSwapChain(IDDCX_MONITOR MonitorObject)
 {
 	auto* pMonitorContextWrapper = WdfObjectGet_IndirectMonitorContextWrapper(MonitorObject);
 	pMonitorContextWrapper->pContext->UnassignSwapChain();
+	return STATUS_SUCCESS;
+}
+
+_Use_decl_annotations_
+NTSTATUS IddSampleAdapterQueryTargetInfo(
+	IDDCX_ADAPTER AdapterObject,
+	IDARG_IN_QUERYTARGET_INFO* pInArgs,
+	IDARG_OUT_QUERYTARGET_INFO* pOutArgs
+)
+{
+	UNREFERENCED_PARAMETER(AdapterObject);
+	UNREFERENCED_PARAMETER(pInArgs);
+	pOutArgs->TargetCaps = IDDCX_TARGET_CAPS_HIGH_COLOR_SPACE;
+	pOutArgs->DitheringSupport.Rgb = IDDCX_BITS_PER_COMPONENT_8 | IDDCX_BITS_PER_COMPONENT_10;
+
+	return STATUS_SUCCESS;
+}
+
+_Use_decl_annotations_
+NTSTATUS IddSampleMonitorSetDefaultHdrMetadata(
+	IDDCX_MONITOR MonitorObject,
+	const IDARG_IN_MONITOR_SET_DEFAULT_HDR_METADATA* pInArgs
+)
+{
+	UNREFERENCED_PARAMETER(MonitorObject);
+	UNREFERENCED_PARAMETER(pInArgs);
+
+	return STATUS_SUCCESS;
+}
+
+_Use_decl_annotations_
+NTSTATUS IddSampleMonitorSetGammaRamp(
+	IDDCX_MONITOR MonitorObject,
+	const IDARG_IN_SET_GAMMARAMP* pInArgs
+)
+{
+	UNREFERENCED_PARAMETER(MonitorObject);
+	UNREFERENCED_PARAMETER(pInArgs);
+
 	return STATUS_SUCCESS;
 }
 

@@ -98,7 +98,6 @@ namespace Microsoft
             virtual ~IndirectDeviceContext();
 
             void InitAdapter();
-            void FinishInit();
 
             NTSTATUS ConnectMonitor(IndirectMonitorContext* pContext);
             void CreateMonitor();
