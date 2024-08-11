@@ -33,10 +33,19 @@ namespace Microsoft
 {
     namespace IndirectDisp
     {
-        struct SampleMonitorMode {
+        class IndirectMonitorContext;
+
+        struct VirtualMonitorMode {
             DWORD Width;
             DWORD Height;
             DWORD VSync;
+        };
+
+        struct VirtualMonitorInfo {
+            GUID MonitorGuid;
+            uint8_t* EdidData;
+            VirtualMonitorMode PreferredMode;
+            IndirectMonitorContext* MonitorCtx;
         };
 
         /// <summary>
@@ -91,8 +100,9 @@ namespace Microsoft
             void InitAdapter();
             void FinishInit();
 
+            NTSTATUS ConnectMonitor(IndirectMonitorContext* pContext);
             void CreateMonitor();
-            void CreateMonitor(uint32_t serial, const char* serialString, const char* displayName,  const GUID& containerId);
+            IndirectMonitorContext* CreateMonitor(uint8_t* edidData, const GUID& containerId);
 
         protected:
             WDFDEVICE m_WdfDevice;
@@ -102,11 +112,15 @@ namespace Microsoft
         class IndirectMonitorContext
         {
         public:
+            VirtualMonitorInfo monitorInfo{};
+
             IndirectMonitorContext(_In_ IDDCX_MONITOR Monitor);
             virtual ~IndirectMonitorContext();
 
             void AssignSwapChain(const IDDCX_MONITOR& MonitorObject, const IDDCX_SWAPCHAIN& SwapChain, const LUID& RenderAdapter, const HANDLE& NewFrameEvent);
             void UnassignSwapChain();
+
+            IDDCX_MONITOR GetMonitor() const;
 
         private:
             IDDCX_MONITOR m_Monitor;
