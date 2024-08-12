@@ -32,7 +32,7 @@ using namespace Microsoft::WRL;
 
 wstring gpuname;
 
-std::list<VirtualMonitorInfo> monitorCtxList;
+std::list<IndirectMonitorContext*> monitorCtxList;
 
 #pragma region SampleMonitors
 
@@ -684,15 +684,7 @@ void IndirectDeviceContext::InitAdapter()
 	}
 }
 
-NTSTATUS IndirectDeviceContext::ConnectMonitor(IndirectMonitorContext* pContext) {
-	// Tell the OS that the monitor has been plugged in
-	IDARG_OUT_MONITORARRIVAL ArrivalOut;
-	NTSTATUS Status = IddCxMonitorArrival(pContext->GetMonitor(), &ArrivalOut);
-
-	return Status;
-}
-
-IndirectMonitorContext* IndirectDeviceContext::CreateMonitor(uint8_t* edidData, const GUID& containerId) {
+NTSTATUS IndirectDeviceContext::CreateMonitor(uint8_t* edidData, const GUID& containerId, const VirtualMonitorMode& preferredMode) {
 	// ==============================
 	// TODO: In a real driver, the EDID should be retrieved dynamically from a connected physical monitor. The EDIDs
 	// provided here are purely for demonstration.
@@ -728,22 +720,31 @@ IndirectMonitorContext* IndirectDeviceContext::CreateMonitor(uint8_t* edidData, 
 		connectedDisplayCount += 1;
 		// Create a new monitor context object and attach it to the Idd monitor object
 		auto* pMonitorContextWrapper = WdfObjectGet_IndirectMonitorContextWrapper(MonitorCreateOut.MonitorObject);
-		pMonitorContextWrapper->pContext = new IndirectMonitorContext(MonitorCreateOut.MonitorObject);
+		auto* pMonitorContext = new IndirectMonitorContext(MonitorCreateOut.MonitorObject, containerId, edidData, preferredMode);
+		pMonitorContextWrapper->pContext = pMonitorContext;
 
-		return pMonitorContextWrapper->pContext;
+		// Tell the OS that the monitor has been plugged in
+		IDARG_OUT_MONITORARRIVAL ArrivalOut;
+		Status = IddCxMonitorArrival(pMonitorContext->GetMonitor(), &ArrivalOut);
 	}
 
-	return nullptr;
+	return Status;
 }
 
-IndirectMonitorContext::IndirectMonitorContext(_In_ IDDCX_MONITOR Monitor) :
-	m_Monitor(Monitor)
+IndirectMonitorContext::IndirectMonitorContext(_In_ IDDCX_MONITOR Monitor, const GUID& containerId, uint8_t* edidData, const VirtualMonitorMode& mode) :
+	m_Monitor(Monitor), guid(containerId), pEdidData(edidData), preferredMode(mode)
 {
+	// Put modes back
+	monitorCtxList.emplace_back(this);
 }
 
 IndirectMonitorContext::~IndirectMonitorContext()
 {
 	m_ProcessingThread.reset();
+	if (pEdidData && pEdidData != edid_base) {
+		free(pEdidData);
+	}
+	monitorCtxList.remove(this);
 }
 
 IDDCX_MONITOR IndirectMonitorContext::GetMonitor() const {
@@ -814,32 +815,25 @@ void IndirectMonitorContext::UnassignSwapChain()
 
 #pragma region DDI Callbacks
 
-void IndirectDeviceContext::CreateMonitor() {
-	std::string idx = std::to_string(connectedDisplayCount + 1);
-	std::string serialStr = "VDD2408";
-	serialStr += idx;
-	std::string dispName = "SudoVDD #";
-	dispName += idx;
-	GUID containerId;
-	CoCreateGuid(&containerId);
-	uint8_t* edidData = generate_edid(0xAA55BB01 + connectedDisplayCount, serialStr.c_str(), dispName.c_str());
+// void IndirectDeviceContext::CreateMonitor() {
+// 	std::string idx = std::to_string(connectedDisplayCount + 1);
+// 	std::string serialStr = "VDD2408";
+// 	serialStr += idx;
+// 	std::string dispName = "SudoVDD #";
+// 	dispName += idx;
+// 	GUID containerId;
+// 	CoCreateGuid(&containerId);
+// 	uint8_t* edidData = generate_edid(0xAA55BB01 + connectedDisplayCount, serialStr.c_str(), dispName.c_str());
 
-	VirtualMonitorInfo mInfo = {
-		containerId,
-		edidData,
-		{3000 + (uint32_t)connectedDisplayCount * 2, 2120 + (uint32_t)connectedDisplayCount, 120},
-		nullptr
-	};
+// 	VirtualMonitorInfo mInfo = {
+// 		containerId,
+// 		edidData,
+// 		{3000 + (uint32_t)connectedDisplayCount * 2, 2120 + (uint32_t)connectedDisplayCount, 120},
+// 		nullptr
+// 	};
 
-	IndirectMonitorContext* ctx = CreateMonitor(edidData, containerId);
-
-	mInfo.MonitorCtx = ctx;
-
-	ctx->monitorInfo = mInfo;
-	monitorCtxList.emplace_back(mInfo);
-
-	ConnectMonitor(ctx);
-}
+// 	CreateMonitor(edidData, containerId, {});
+// }
 
 _Use_decl_annotations_
 NTSTATUS IddSampleAdapterInitFinished(IDDCX_ADAPTER AdapterObject, const IDARG_IN_ADAPTER_INIT_FINISHED* pInArgs)
@@ -905,10 +899,10 @@ NTSTATUS IddSampleParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION
 	VirtualMonitorMode* pPreferredMode = nullptr;
 
 	for (auto &it: monitorCtxList) {
-		if (memcmp(pInArgs->MonitorDescription.pData, it.EdidData, sizeof(edid_base)) == 0) {
-			if (it.PreferredMode.Width) {
+		if (memcmp(pInArgs->MonitorDescription.pData, it->pEdidData, sizeof(edid_base)) == 0) {
+			if (it->preferredMode.Width) {
 				pOutArgs->MonitorModeBufferOutputCount += 1;
-				pPreferredMode = &it.PreferredMode;
+				pPreferredMode = &it->preferredMode;
 			}
 			break;
 		}
@@ -962,10 +956,10 @@ NTSTATUS IddSampleParseMonitorDescription2(
 	VirtualMonitorMode* pPreferredMode = nullptr;
 
 	for (auto &it: monitorCtxList) {
-		if (memcmp(pInArgs->MonitorDescription.pData, it.EdidData, sizeof(edid_base)) == 0) {
-			if (it.PreferredMode.Width) {
+		if (memcmp(pInArgs->MonitorDescription.pData, it->pEdidData, sizeof(edid_base)) == 0) {
+			if (it->preferredMode.Width) {
 				pOutArgs->MonitorModeBufferOutputCount += 1;
-				pPreferredMode = &it.PreferredMode;
+				pPreferredMode = &it->preferredMode;
 			}
 			break;
 		}
@@ -1057,11 +1051,11 @@ NTSTATUS IddSampleMonitorQueryModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_
 	}
 
 	auto* pMonitorContextWrapper = WdfObjectGet_IndirectMonitorContextWrapper(MonitorObject);
-	if (pMonitorContextWrapper->pContext->monitorInfo.PreferredMode.Width) {
+	if (pMonitorContextWrapper->pContext->preferredMode.Width) {
 		TargetModes.push_back(CreateIddCxTargetMode(
-			pMonitorContextWrapper->pContext->monitorInfo.PreferredMode.Width,
-			pMonitorContextWrapper->pContext->monitorInfo.PreferredMode.Height,
-			pMonitorContextWrapper->pContext->monitorInfo.PreferredMode.VSync
+			pMonitorContextWrapper->pContext->preferredMode.Width,
+			pMonitorContextWrapper->pContext->preferredMode.Height,
+			pMonitorContextWrapper->pContext->preferredMode.VSync
 		));
 	}
 
@@ -1099,11 +1093,11 @@ NTSTATUS IddSampleMonitorQueryModes2(IDDCX_MONITOR MonitorObject, const IDARG_IN
 	}
 
 	auto* pMonitorContextWrapper = WdfObjectGet_IndirectMonitorContextWrapper(MonitorObject);
-	if (pMonitorContextWrapper->pContext->monitorInfo.PreferredMode.Width) {
+	if (pMonitorContextWrapper->pContext->preferredMode.Width) {
 		TargetModes.push_back(CreateIddCxTargetMode2(
-			pMonitorContextWrapper->pContext->monitorInfo.PreferredMode.Width,
-			pMonitorContextWrapper->pContext->monitorInfo.PreferredMode.Height,
-			pMonitorContextWrapper->pContext->monitorInfo.PreferredMode.VSync
+			pMonitorContextWrapper->pContext->preferredMode.Width,
+			pMonitorContextWrapper->pContext->preferredMode.Height,
+			pMonitorContextWrapper->pContext->preferredMode.VSync
 		));
 	}
 
@@ -1213,27 +1207,9 @@ VOID IddSampleIoDeviceControl(
 			char deviceName[14];
 			snprintf(deviceName, 13, "%ws", params->DeviceName);
 			uint8_t* edidData = generate_edid(0xAABBCCDD, "123456789ABCD", deviceName);
-			IndirectMonitorContext* ctx = pDeviceContextWrapper->pContext->CreateMonitor(edidData, params->MonitorGuid);
-
-			if (!ctx) {
-				status = STATUS_INVALID_PARAMETER;
-				free(edidData);
-				break;
-			}
-
-			ctx->monitorInfo = {
-				params->MonitorGuid,
-				edidData,
-				{params->Width, params->Height, params->RefreshRate},
-				ctx
-			};
-
-			monitorCtxList.emplace_back(ctx->monitorInfo);
-
-			status = pDeviceContextWrapper->pContext->ConnectMonitor(ctx);
+			status = pDeviceContextWrapper->pContext->CreateMonitor(edidData, params->MonitorGuid, {params->Width, params->Height, params->RefreshRate});
 
 			if (!NT_SUCCESS(status)) {
-				free(edidData);
 				break;
 			}
 
@@ -1261,17 +1237,19 @@ VOID IddSampleIoDeviceControl(
 		status = STATUS_NOT_FOUND;
 
 		for (auto it = monitorCtxList.begin(); it != monitorCtxList.end(); ++it) {
-			if (it->MonitorGuid == params->MonitorGuid) {
+			auto* ctx = *it;
+			if (ctx->guid == params->MonitorGuid) {
 				// Remove the monitor
-				IndirectMonitorContext* ctx = it->MonitorCtx;
 				IddCxMonitorDeparture(ctx->GetMonitor());
-				monitorCtxList.erase(it);
 				pDeviceContextWrapper->pContext->connectedDisplayCount--;
 				status = STATUS_SUCCESS;
 				break;
 			}
 		}
 
+		break;
+	}
+	case IOCTL_DRIVER_PING: {
 		break;
 	}
 	default:

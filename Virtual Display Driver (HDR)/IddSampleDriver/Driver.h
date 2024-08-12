@@ -33,19 +33,10 @@ namespace Microsoft
 {
     namespace IndirectDisp
     {
-        class IndirectMonitorContext;
-
         struct VirtualMonitorMode {
             DWORD Width;
             DWORD Height;
             DWORD VSync;
-        };
-
-        struct VirtualMonitorInfo {
-            GUID MonitorGuid;
-            uint8_t* EdidData;
-            VirtualMonitorMode PreferredMode;
-            IndirectMonitorContext* MonitorCtx;
         };
 
         /// <summary>
@@ -86,6 +77,26 @@ namespace Microsoft
             Microsoft::WRL::Wrappers::Event m_hTerminateEvent;
         };
 
+        class IndirectMonitorContext
+        {
+        public:
+            GUID guid;
+            uint8_t* pEdidData;
+            VirtualMonitorMode preferredMode;
+
+            IndirectMonitorContext(_In_ IDDCX_MONITOR Monitor, const GUID& containerId, uint8_t* edidData, const VirtualMonitorMode& preferredMode);
+            virtual ~IndirectMonitorContext();
+
+            void AssignSwapChain(const IDDCX_MONITOR& MonitorObject, const IDDCX_SWAPCHAIN& SwapChain, const LUID& RenderAdapter, const HANDLE& NewFrameEvent);
+            void UnassignSwapChain();
+
+            IDDCX_MONITOR GetMonitor() const;
+
+        private:
+            IDDCX_MONITOR m_Monitor;
+            std::unique_ptr<SwapChainProcessor> m_ProcessingThread;
+        } ;
+
         /// <summary>
         /// Provides a sample implementation of an indirect display driver.
         /// </summary>
@@ -99,31 +110,12 @@ namespace Microsoft
 
             void InitAdapter();
 
-            NTSTATUS ConnectMonitor(IndirectMonitorContext* pContext);
-            void CreateMonitor();
-            IndirectMonitorContext* CreateMonitor(uint8_t* edidData, const GUID& containerId);
+            // void CreateMonitor();
+            NTSTATUS CreateMonitor(uint8_t* edidData, const GUID& containerId, const VirtualMonitorMode& preferredMode);
 
         protected:
             WDFDEVICE m_WdfDevice;
             IDDCX_ADAPTER m_Adapter;
         };
-
-        class IndirectMonitorContext
-        {
-        public:
-            VirtualMonitorInfo monitorInfo{};
-
-            IndirectMonitorContext(_In_ IDDCX_MONITOR Monitor);
-            virtual ~IndirectMonitorContext();
-
-            void AssignSwapChain(const IDDCX_MONITOR& MonitorObject, const IDDCX_SWAPCHAIN& SwapChain, const LUID& RenderAdapter, const HANDLE& NewFrameEvent);
-            void UnassignSwapChain();
-
-            IDDCX_MONITOR GetMonitor() const;
-
-        private:
-            IDDCX_MONITOR m_Monitor;
-            std::unique_ptr<SwapChainProcessor> m_ProcessingThread;
-        } ;
     }
 }
