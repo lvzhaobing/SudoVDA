@@ -319,27 +319,27 @@ NTSTATUS IddSampleDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
 	// }
 
 	// if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxMonitorSetDefaultHdrMetaData))
-    // {
+	// {
 		IddConfig.EvtIddCxMonitorSetDefaultHdrMetaData = IddSampleMonitorSetDefaultHdrMetadata;
 	// }
 
 	// if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxParseMonitorDescription2))
-    // {
+	// {
 		IddConfig.EvtIddCxParseMonitorDescription2 = IddSampleParseMonitorDescription2;
 	// }
 
 	// if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxMonitorQueryTargetModes2))
-    // {
+	// {
 		IddConfig.EvtIddCxMonitorQueryTargetModes2 = IddSampleMonitorQueryModes2;
 	// }
 
 	// if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxAdapterCommitModes2))
-    // {
+	// {
 		IddConfig.EvtIddCxAdapterCommitModes2 = IddSampleAdapterCommitModes2;
 	// }
 
 	// if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxMonitorSetGammaRamp))
-    // {
+	// {
 		IddConfig.EvtIddCxMonitorSetGammaRamp = IddSampleMonitorSetGammaRamp;
 	}
 
@@ -844,18 +844,20 @@ void IndirectDeviceContext::CreateMonitor() {
 _Use_decl_annotations_
 NTSTATUS IddSampleAdapterInitFinished(IDDCX_ADAPTER AdapterObject, const IDARG_IN_ADAPTER_INIT_FINISHED* pInArgs)
 {
-	// UNREFERENCED_PARAMETER(AdapterObject);
+	UNREFERENCED_PARAMETER(AdapterObject);
 	// UNREFERENCED_PARAMETER(pInArgs);
 
-	auto* pDeviceContextWrapper = WdfObjectGet_IndirectDeviceContextWrapper(AdapterObject);
-	if (NT_SUCCESS(pInArgs->AdapterInitStatus))
-	{
-		for (size_t i = 0; i < 3; i++) {
-			pDeviceContextWrapper->pContext->CreateMonitor();
-		}
-	}
+	return pInArgs->AdapterInitStatus;
 
-	return STATUS_SUCCESS;
+	// auto* pDeviceContextWrapper = WdfObjectGet_IndirectDeviceContextWrapper(AdapterObject);
+	// if (NT_SUCCESS(pInArgs->AdapterInitStatus))
+	// {
+	// 	for (size_t i = 0; i < 3; i++) {
+	// 		pDeviceContextWrapper->pContext->CreateMonitor();
+	// 	}
+	// }
+
+	// return STATUS_SUCCESS;
 }
 
 _Use_decl_annotations_
