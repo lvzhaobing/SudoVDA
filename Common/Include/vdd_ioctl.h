@@ -3,16 +3,23 @@
 #define IOCTL_ADD_VIRTUAL_DISPLAY CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_REMOVE_VIRTUAL_DISPLAY CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
+static const char* SUVDA_HARDWARE_ID = "root\\sudomaker\\sudovda";
+
+// {4d36e968-e325-11ce-bfc1-08002be10318}
+static const GUID SUVDA_CLASS_GUID = { 0x4d36e968, 0xe325, 0x11ce, { 0xbf, 0xc1, 0x08, 0x00, 0x2b, 0xe1, 0x03, 0x18 } };
+// {e5bcc234-1e0c-418a-a0d4-ef8b7501414d}
+static const GUID SUVDA_INTERFACE_GUID = { 0xe5bcc234, 0x1e0c, 0x418, { 0xa0, 0xd4, 0xef, 0x8b, 0x75, 0x01, 0x41, 0x4d } };
+
 typedef struct _VIRTUAL_DISPLAY_PARAMS {
 	UINT Width;
 	UINT Height;
 	UINT RefreshRate;
 	GUID MonitorGuid;
-	WCHAR DeviceName[14];  // Ensure the length matches your needs
+	WCHAR DeviceName[14];
 } VIRTUAL_DISPLAY_PARAMS, * PVIRTUAL_DISPLAY_PARAMS;
 
 typedef struct _VIRTUAL_DISPLAY_REMOVE_PARAMS {
-	GUID MonitorGuid;  // Identifier for the display to be removed
+	GUID MonitorGuid;
 } VIRTUAL_DISPLAY_REMOVE_PARAMS, * PVIRTUAL_DISPLAY_REMOVE_PARAMS;
 
 typedef struct _VIRTUAL_DISPLAY_OUTPUT {

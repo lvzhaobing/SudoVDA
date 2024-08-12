@@ -368,6 +368,16 @@ NTSTATUS IddSampleDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
 		return Status;
 	}
 
+	Status = WdfDeviceCreateDeviceInterface(
+		Device,
+		&SUVDA_INTERFACE_GUID,
+		NULL
+	);
+
+	if (!NT_SUCCESS(Status)) {
+		return Status;
+	}
+
 	Status = IddCxDeviceInitialize(Device);
 
 	// Create a new device context object and attach it to the WDF device object
