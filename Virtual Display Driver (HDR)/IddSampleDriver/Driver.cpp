@@ -30,7 +30,8 @@ using namespace std;
 using namespace Microsoft::IndirectDisp;
 using namespace Microsoft::WRL;
 
-wstring gpuname;
+LUID preferredAdapterLuid{};
+bool preferredAdapterChanged = false;
 
 std::list<IndirectMonitorContext*> monitorCtxList;
 
@@ -266,11 +267,17 @@ bool loadGPUSettings() {
 		return false;
 	}
 
-	gpuname = gpuName;
+	AdapterOption adapterOpt = AdapterOption();
+
+	adapterOpt.selectGPU(gpuName);
+	// adapterOpt.selectGPU(L"Intel(R) UHD Graphics 630");
+	// adapterOpt.selectBestGPU();
+
+	preferredAdapterLuid = adapterOpt.adapterLuid;
 
 	// Close the registry key
 	RegCloseKey(hKey);
-	return true;
+	return adapterOpt.hasTargetAdapter;
 }
 
 VOID IddSampleIoDeviceControl(
@@ -289,7 +296,7 @@ NTSTATUS IddSampleDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
 
 	UNREFERENCED_PARAMETER(Driver);
 
-	loadGPUSettings();
+	preferredAdapterChanged = loadGPUSettings();
 
 	// Register for power callbacks - in this sample only power-on is needed
 	WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&PnpPowerCallbacks);
@@ -408,12 +415,7 @@ Direct3DDevice::Direct3DDevice(LUID AdapterLuid) : AdapterLuid(AdapterLuid)
 
 Direct3DDevice::Direct3DDevice()
 {
-	AdapterOption adapterOpt = AdapterOption();
-
-	adapterOpt.selectGPU(gpuname);
-	// adapterOpt.selectBestGPU();
-
-	AdapterLuid = adapterOpt.adapterLuid;
+	AdapterLuid = preferredAdapterLuid;
 }
 
 HRESULT Direct3DDevice::Init()
@@ -720,7 +722,7 @@ NTSTATUS IndirectDeviceContext::CreateMonitor(uint8_t* edidData, const GUID& con
 		connectedDisplayCount += 1;
 		// Create a new monitor context object and attach it to the Idd monitor object
 		auto* pMonitorContextWrapper = WdfObjectGet_IndirectMonitorContextWrapper(MonitorCreateOut.MonitorObject);
-		auto* pMonitorContext = new IndirectMonitorContext(MonitorCreateOut.MonitorObject, containerId, edidData, preferredMode);
+		auto* pMonitorContext = new IndirectMonitorContext(MonitorCreateOut.MonitorObject, m_Adapter, containerId, edidData, preferredMode);
 		pMonitorContextWrapper->pContext = pMonitorContext;
 
 		// Tell the OS that the monitor has been plugged in
@@ -731,10 +733,10 @@ NTSTATUS IndirectDeviceContext::CreateMonitor(uint8_t* edidData, const GUID& con
 	return Status;
 }
 
-IndirectMonitorContext::IndirectMonitorContext(_In_ IDDCX_MONITOR Monitor, const GUID& containerId, uint8_t* edidData, const VirtualMonitorMode& mode) :
-	m_Monitor(Monitor), guid(containerId), pEdidData(edidData), preferredMode(mode)
+IndirectMonitorContext::IndirectMonitorContext(_In_ IDDCX_MONITOR Monitor, const IDDCX_ADAPTER& Adapter, const GUID& containerId, uint8_t* edidData, const VirtualMonitorMode& mode) :
+	m_Monitor(Monitor), m_Adapter(Adapter), guid(containerId), pEdidData(edidData), preferredMode(mode)
 {
-	// Put modes back
+	// Store context for later use
 	monitorCtxList.emplace_back(this);
 }
 
@@ -838,8 +840,14 @@ void IndirectMonitorContext::UnassignSwapChain()
 _Use_decl_annotations_
 NTSTATUS IddSampleAdapterInitFinished(IDDCX_ADAPTER AdapterObject, const IDARG_IN_ADAPTER_INIT_FINISHED* pInArgs)
 {
-	UNREFERENCED_PARAMETER(AdapterObject);
+	// UNREFERENCED_PARAMETER(AdapterObject);
 	// UNREFERENCED_PARAMETER(pInArgs);
+
+	if (preferredAdapterChanged) {
+		IDARG_IN_ADAPTERSETRENDERADAPTER inArgs{preferredAdapterLuid};
+		IddCxAdapterSetRenderAdapter(AdapterObject, &inArgs);
+		preferredAdapterChanged = false;
+	}
 
 	return pInArgs->AdapterInitStatus;
 
@@ -1115,6 +1123,14 @@ _Use_decl_annotations_
 NTSTATUS IddSampleMonitorAssignSwapChain(IDDCX_MONITOR MonitorObject, const IDARG_IN_SETSWAPCHAIN* pInArgs)
 {
 	auto* pMonitorContextWrapper = WdfObjectGet_IndirectMonitorContextWrapper(MonitorObject);
+
+	if (preferredAdapterChanged && memcmp(&pInArgs->RenderAdapterLuid, &preferredAdapterLuid, sizeof(LUID))) {
+		IDARG_IN_ADAPTERSETRENDERADAPTER inArgs{preferredAdapterLuid};
+		IddCxAdapterSetRenderAdapter(pMonitorContextWrapper->pContext->m_Adapter, &inArgs);
+		preferredAdapterChanged = false;
+		return STATUS_GRAPHICS_INDIRECT_DISPLAY_ABANDON_SWAPCHAIN;
+	}
+
 	pMonitorContextWrapper->pContext->AssignSwapChain(MonitorObject, pInArgs->hSwapChain, pInArgs->RenderAdapterLuid, pInArgs->hNextSurfaceAvailable);
 	return STATUS_SUCCESS;
 }
