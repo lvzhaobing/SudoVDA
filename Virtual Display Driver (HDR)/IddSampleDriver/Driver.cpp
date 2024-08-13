@@ -19,7 +19,6 @@ Environment:
 #include "edid.h"
 
 #include <tuple>
-#include <vector>
 #include <list>
 #include <iostream>
 
@@ -622,6 +621,9 @@ IndirectDeviceContext::IndirectDeviceContext(_In_ WDFDEVICE WdfDevice) :
 	m_WdfDevice(WdfDevice)
 {
 	m_Adapter = {};
+	for (size_t i = 0; i < IDD_SAMPLE_MONITOR_COUNT; i++) {
+		freeConnectorSlots.push(i);
+	}
 }
 
 IndirectDeviceContext::~IndirectDeviceContext()
@@ -686,7 +688,7 @@ void IndirectDeviceContext::InitAdapter()
 	}
 }
 
-NTSTATUS IndirectDeviceContext::CreateMonitor(uint8_t* edidData, const GUID& containerId, const VirtualMonitorMode& preferredMode) {
+NTSTATUS IndirectDeviceContext::CreateMonitor(IndirectMonitorContext*& pMonitorContext, uint8_t* edidData, const GUID& containerId, const VirtualMonitorMode& preferredMode) {
 	// ==============================
 	// TODO: In a real driver, the EDID should be retrieved dynamically from a connected physical monitor. The EDIDs
 	// provided here are purely for demonstration.
@@ -702,7 +704,7 @@ NTSTATUS IndirectDeviceContext::CreateMonitor(uint8_t* edidData, const GUID& con
 	IDDCX_MONITOR_INFO MonitorInfo = {};
 	MonitorInfo.Size = sizeof(MonitorInfo);
 	MonitorInfo.MonitorType = DISPLAYCONFIG_OUTPUT_TECHNOLOGY_HDMI;
-	MonitorInfo.ConnectorIndex = (UINT)connectedDisplayCount;
+	MonitorInfo.ConnectorIndex = (UINT)freeConnectorSlots.front();
 
 	MonitorInfo.MonitorDescription.Size = sizeof(MonitorInfo.MonitorDescription);
 	MonitorInfo.MonitorDescription.Type = IDDCX_MONITOR_DESCRIPTION_TYPE_EDID;
@@ -719,22 +721,29 @@ NTSTATUS IndirectDeviceContext::CreateMonitor(uint8_t* edidData, const GUID& con
 	NTSTATUS Status = IddCxMonitorCreate(m_Adapter, &MonitorCreate, &MonitorCreateOut);
 	if (NT_SUCCESS(Status))
 	{
-		connectedDisplayCount += 1;
+		freeConnectorSlots.pop();
 		// Create a new monitor context object and attach it to the Idd monitor object
 		auto* pMonitorContextWrapper = WdfObjectGet_IndirectMonitorContextWrapper(MonitorCreateOut.MonitorObject);
-		auto* pMonitorContext = new IndirectMonitorContext(MonitorCreateOut.MonitorObject, m_Adapter, containerId, edidData, preferredMode);
+		pMonitorContext = new IndirectMonitorContext(MonitorCreateOut.MonitorObject);
+
+		pMonitorContext->monitorGuid = containerId;
+		pMonitorContext->connectorId = MonitorInfo.ConnectorIndex;
+		pMonitorContext->pEdidData = edidData;
+		pMonitorContext->preferredMode = preferredMode;
+		pMonitorContext->m_Adapter = m_Adapter;
+
 		pMonitorContextWrapper->pContext = pMonitorContext;
 
 		// Tell the OS that the monitor has been plugged in
 		IDARG_OUT_MONITORARRIVAL ArrivalOut;
-		Status = IddCxMonitorArrival(pMonitorContext->GetMonitor(), &ArrivalOut);
+		Status = IddCxMonitorArrival(MonitorCreateOut.MonitorObject, &ArrivalOut);
 	}
 
 	return Status;
 }
 
-IndirectMonitorContext::IndirectMonitorContext(_In_ IDDCX_MONITOR Monitor, const IDDCX_ADAPTER& Adapter, const GUID& containerId, uint8_t* edidData, const VirtualMonitorMode& mode) :
-	m_Monitor(Monitor), m_Adapter(Adapter), guid(containerId), pEdidData(edidData), preferredMode(mode)
+IndirectMonitorContext::IndirectMonitorContext(_In_ IDDCX_MONITOR Monitor) :
+	m_Monitor(Monitor)
 {
 	// Store context for later use
 	monitorCtxList.emplace_back(this);
@@ -818,23 +827,25 @@ void IndirectMonitorContext::UnassignSwapChain()
 #pragma region DDI Callbacks
 
 // void IndirectDeviceContext::CreateMonitor() {
-// 	std::string idx = std::to_string(connectedDisplayCount + 1);
+//  auto connectorIndex = freeConnectorSlots.front();
+// 	std::string idx = std::to_string(connectorIndex);
 // 	std::string serialStr = "VDD2408";
 // 	serialStr += idx;
 // 	std::string dispName = "SudoVDD #";
 // 	dispName += idx;
 // 	GUID containerId;
 // 	CoCreateGuid(&containerId);
-// 	uint8_t* edidData = generate_edid(0xAA55BB01 + connectedDisplayCount, serialStr.c_str(), dispName.c_str());
+// 	uint8_t* edidData = generate_edid(0xAA55BB01 + connectorIndex, serialStr.c_str(), dispName.c_str());
 
 // 	VirtualMonitorInfo mInfo = {
 // 		containerId,
 // 		edidData,
-// 		{3000 + (uint32_t)connectedDisplayCount * 2, 2120 + (uint32_t)connectedDisplayCount, 120},
+// 		{3000 + connectorIndex * 2, 2120 + connectorIndex, 120},
 // 		nullptr
 // 	};
 
-// 	CreateMonitor(edidData, containerId, {});
+//  IndirectMonitorContext*& pMonitorContext;
+// 	CreateMonitor(pMonitorContext, edidData, containerId, {});
 // }
 
 _Use_decl_annotations_
@@ -1192,73 +1203,78 @@ VOID IddSampleIoDeviceControl(
 	_In_ ULONG IoControlCode
 )
 {
-	NTSTATUS status = STATUS_SUCCESS;
+	NTSTATUS Status = STATUS_INVALID_DEVICE_REQUEST;
 	size_t bytesReturned = 0;
 
 	auto* pDeviceContextWrapper = WdfObjectGet_IndirectDeviceContextWrapper(Device);
 
 	switch (IoControlCode) {
 	case IOCTL_ADD_VIRTUAL_DISPLAY: {
+		if (pDeviceContextWrapper->pContext->freeConnectorSlots.empty()) {
+			Status = STATUS_TOO_MANY_NODES;
+			break;
+		}
+
 		if (InputBufferLength < sizeof(VIRTUAL_DISPLAY_PARAMS) || OutputBufferLength < sizeof(VIRTUAL_DISPLAY_OUTPUT)) {
-			status = STATUS_BUFFER_TOO_SMALL;
+			Status = STATUS_BUFFER_TOO_SMALL;
 			break;
 		}
 
 		PVIRTUAL_DISPLAY_PARAMS params;
 		PVIRTUAL_DISPLAY_OUTPUT output;
-		status = WdfRequestRetrieveInputBuffer(Request, sizeof(VIRTUAL_DISPLAY_PARAMS), (PVOID*)&params, NULL);
-		if (!NT_SUCCESS(status)) {
+		Status = WdfRequestRetrieveInputBuffer(Request, sizeof(VIRTUAL_DISPLAY_PARAMS), (PVOID*)&params, NULL);
+		if (!NT_SUCCESS(Status)) {
 			break;
 		}
 
-		status = WdfRequestRetrieveOutputBuffer(Request, sizeof(VIRTUAL_DISPLAY_OUTPUT), (PVOID*)&output, NULL);
-		if (!NT_SUCCESS(status)) {
+		Status = WdfRequestRetrieveOutputBuffer(Request, sizeof(VIRTUAL_DISPLAY_OUTPUT), (PVOID*)&output, NULL);
+		if (!NT_SUCCESS(Status)) {
 			break;
 		}
 
 		// Validate and add the virtual display
 		if (params->Width > 0 && params->Height > 0 && params->RefreshRate > 0) {
-			UINT connectorID = pDeviceContextWrapper->pContext->connectedDisplayCount;
-			// status = pContext->pContext->CreateVirtualMonitor(params->Width, params->Height, params->RefreshRate, params->MonitorGuid, params->DeviceName);
-			char deviceName[14];
-			snprintf(deviceName, 13, "%ws", params->DeviceName);
-			uint8_t* edidData = generate_edid(0xAABBCCDD, "123456789ABCD", deviceName);
-			status = pDeviceContextWrapper->pContext->CreateMonitor(edidData, params->MonitorGuid, {params->Width, params->Height, params->RefreshRate});
+			// Status = pContext->pContext->CreateVirtualMonitor(params->Width, params->Height, params->RefreshRate, params->MonitorGuid, params->DeviceName);
+			// char deviceName[14];
+			// snprintf(deviceName, 13, "%ws", params->DeviceName);
+			IndirectMonitorContext* pMonitorContext;
+			uint8_t* edidData = generate_edid(params->MonitorGuid.Data1, params->SerialNumber, params->DeviceName);
+			Status = pDeviceContextWrapper->pContext->CreateMonitor(pMonitorContext, edidData, params->MonitorGuid, {params->Width, params->Height, params->RefreshRate});
 
-			if (!NT_SUCCESS(status)) {
+			if (!NT_SUCCESS(Status)) {
 				break;
 			}
 
-			output->ConnectorID = connectorID;
+			output->ConnectorID = pMonitorContext->connectorId;
 			bytesReturned = sizeof(VIRTUAL_DISPLAY_OUTPUT);
 		}
 		else {
-			status = STATUS_INVALID_PARAMETER;
+			Status = STATUS_INVALID_PARAMETER;
 		}
 
 		break;
 	}
 	case IOCTL_REMOVE_VIRTUAL_DISPLAY: {
 		if (InputBufferLength < sizeof(VIRTUAL_DISPLAY_REMOVE_PARAMS)) {
-			status = STATUS_BUFFER_TOO_SMALL;
+			Status = STATUS_BUFFER_TOO_SMALL;
 			break;
 		}
 
 		PVIRTUAL_DISPLAY_REMOVE_PARAMS params;
-		status = WdfRequestRetrieveInputBuffer(Request, sizeof(VIRTUAL_DISPLAY_REMOVE_PARAMS), (PVOID*)&params, NULL);
-		if (!NT_SUCCESS(status)) {
+		Status = WdfRequestRetrieveInputBuffer(Request, sizeof(VIRTUAL_DISPLAY_REMOVE_PARAMS), (PVOID*)&params, NULL);
+		if (!NT_SUCCESS(Status)) {
 			break;
 		}
 
-		status = STATUS_NOT_FOUND;
+		Status = STATUS_NOT_FOUND;
 
 		for (auto it = monitorCtxList.begin(); it != monitorCtxList.end(); ++it) {
 			auto* ctx = *it;
-			if (ctx->guid == params->MonitorGuid) {
+			if (ctx->monitorGuid == params->MonitorGuid) {
 				// Remove the monitor
+				pDeviceContextWrapper->pContext->freeConnectorSlots.push(ctx->connectorId);
 				IddCxMonitorDeparture(ctx->GetMonitor());
-				pDeviceContextWrapper->pContext->connectedDisplayCount--;
-				status = STATUS_SUCCESS;
+				Status = STATUS_SUCCESS;
 				break;
 			}
 		}
@@ -1266,12 +1282,12 @@ VOID IddSampleIoDeviceControl(
 		break;
 	}
 	case IOCTL_DRIVER_PING: {
+		Status = STATUS_SUCCESS;
 		break;
 	}
 	default:
-		status = STATUS_INVALID_DEVICE_REQUEST;
 		break;
 	}
 
-	WdfRequestCompleteWithInformation(Request, status, bytesReturned);
+	WdfRequestCompleteWithInformation(Request, Status, bytesReturned);
 }

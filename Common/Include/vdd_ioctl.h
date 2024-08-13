@@ -16,7 +16,8 @@ typedef struct _VIRTUAL_DISPLAY_PARAMS {
 	UINT Height;
 	UINT RefreshRate;
 	GUID MonitorGuid;
-	WCHAR DeviceName[14];
+	CHAR DeviceName[14];
+	CHAR SerialNumber[14];
 } VIRTUAL_DISPLAY_PARAMS, * PVIRTUAL_DISPLAY_PARAMS;
 
 typedef struct _VIRTUAL_DISPLAY_REMOVE_PARAMS {

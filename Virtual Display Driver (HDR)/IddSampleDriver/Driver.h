@@ -13,7 +13,7 @@
 #include <wrl.h>
 
 #include <memory>
-#include <vector>
+#include <queue>
 
 #include "Trace.h"
 
@@ -80,12 +80,13 @@ namespace Microsoft
 		class IndirectMonitorContext
 		{
 		public:
-			GUID guid;
-			uint8_t* pEdidData;
-			VirtualMonitorMode preferredMode;
-			IDDCX_ADAPTER m_Adapter;
+			GUID monitorGuid{};
+			uint8_t* pEdidData = nullptr;
+			UINT connectorId = 0;
+			VirtualMonitorMode preferredMode{};
+			IDDCX_ADAPTER m_Adapter{};
 
-			IndirectMonitorContext(_In_ IDDCX_MONITOR Monitor, const IDDCX_ADAPTER& Adapter, const GUID& containerId, uint8_t* edidData, const VirtualMonitorMode& preferredMode);
+			IndirectMonitorContext(_In_ IDDCX_MONITOR Monitor);
 			virtual ~IndirectMonitorContext();
 
 			void AssignSwapChain(const IDDCX_MONITOR& MonitorObject, const IDDCX_SWAPCHAIN& SwapChain, const LUID& RenderAdapter, const HANDLE& NewFrameEvent);
@@ -104,7 +105,7 @@ namespace Microsoft
 		class IndirectDeviceContext
 		{
 		public:
-			uint8_t connectedDisplayCount = 0;
+			std::queue<size_t> freeConnectorSlots;
 
 			IndirectDeviceContext(_In_ WDFDEVICE WdfDevice);
 			virtual ~IndirectDeviceContext();
@@ -112,7 +113,7 @@ namespace Microsoft
 			void InitAdapter();
 
 			// void CreateMonitor();
-			NTSTATUS CreateMonitor(uint8_t* edidData, const GUID& containerId, const VirtualMonitorMode& preferredMode);
+			NTSTATUS CreateMonitor(IndirectMonitorContext*& pMonitorContext, uint8_t* edidData, const GUID& containerId, const VirtualMonitorMode& preferredMode);
 
 		protected:
 			WDFDEVICE m_WdfDevice;
