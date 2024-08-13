@@ -105,8 +105,6 @@ namespace Microsoft
 		class IndirectDeviceContext
 		{
 		public:
-			std::queue<size_t> freeConnectorSlots;
-
 			IndirectDeviceContext(_In_ WDFDEVICE WdfDevice);
 			virtual ~IndirectDeviceContext();
 

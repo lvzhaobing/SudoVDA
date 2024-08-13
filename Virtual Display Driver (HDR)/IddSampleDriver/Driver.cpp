@@ -21,6 +21,8 @@ Environment:
 #include <tuple>
 #include <list>
 #include <iostream>
+#include <thread>
+#include <mutex>
 
 #include <AdapterOption.h>
 #include <vdd_ioctl.h>
@@ -32,7 +34,13 @@ using namespace Microsoft::WRL;
 LUID preferredAdapterLuid{};
 bool preferredAdapterChanged = false;
 
+std::mutex monitorListOp;
+std::queue<size_t> freeConnectorSlots;
 std::list<IndirectMonitorContext*> monitorCtxList;
+
+DWORD watchdogTimeout = 3; // seconds
+DWORD watchdogCountdown = 0;
+std::thread watchdogThread;
 
 #pragma region SampleMonitors
 
@@ -161,6 +169,7 @@ static IDDCX_TARGET_MODE2 CreateIddCxTargetMode2(DWORD Width, DWORD Height, DWOR
 
 extern "C" DRIVER_INITIALIZE DriverEntry;
 
+EVT_WDF_DRIVER_UNLOAD IddSampleDriverUnload;
 EVT_WDF_DRIVER_DEVICE_ADD IddSampleDeviceAdd;
 EVT_WDF_DEVICE_D0_ENTRY IddSampleDeviceD0Entry;
 
@@ -220,12 +229,92 @@ extern "C" BOOL WINAPI DllMain(
 	return TRUE;
 }
 
+void LoadSettings() {
+	HKEY hKey;
+	DWORD bufferSize;
+	LONG lResult;
+
+	// Open the registry key
+	lResult = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\SudoMaker\\SudoVDA", 0, KEY_READ, &hKey);
+	if (lResult != ERROR_SUCCESS) {
+		return;
+	}
+
+	// Query gpuName
+	wchar_t gpuName[128];
+	bufferSize = sizeof(gpuName);
+	lResult = RegQueryValueExW(hKey, L"gpuName", NULL, NULL, (LPBYTE)gpuName, &bufferSize);
+	if (lResult == ERROR_SUCCESS) {
+		AdapterOption adapterOpt = AdapterOption();
+		adapterOpt.selectGPU(gpuName);
+
+		preferredAdapterLuid = adapterOpt.adapterLuid;
+		preferredAdapterChanged = adapterOpt.hasTargetAdapter;
+	}
+
+	// Query watchdog
+	DWORD _watchdogTimeout;
+	bufferSize = sizeof(DWORD);
+	lResult = RegQueryValueExW(hKey, L"watchdog", NULL, NULL, (LPBYTE)&_watchdogTimeout, &bufferSize);
+	if (lResult == ERROR_SUCCESS) {
+		watchdogTimeout = _watchdogTimeout;
+	}
+
+	// Close the registry key
+	RegCloseKey(hKey);
+}
+
+void DisconnectAllMonitors() {
+	std::lock_guard<std::mutex> lg(monitorListOp);
+
+	if (monitorCtxList.empty()) {
+		return;
+	}
+
+	for (auto it = monitorCtxList.begin(); it != monitorCtxList.end(); ++it) {
+		auto* ctx = *it;
+		// Remove the monitor
+		freeConnectorSlots.push(ctx->connectorId);
+		IddCxMonitorDeparture(ctx->GetMonitor());
+	}
+
+	monitorCtxList.clear();
+}
+
+void RunWatchdog() {
+	if (watchdogTimeout) {
+		watchdogCountdown = watchdogTimeout;
+		watchdogThread = std::thread([]{
+			for (;;) {
+				if (watchdogTimeout) {
+					Sleep(1000);
+
+					if (!watchdogCountdown || monitorCtxList.empty()) {
+						continue;
+					}
+
+					watchdogCountdown -= 1;
+
+					if (!watchdogCountdown) {
+						DisconnectAllMonitors();
+					}
+				} else {
+					DisconnectAllMonitors();
+					return;
+				}
+			}
+		});
+	}
+}
+
 _Use_decl_annotations_
 extern "C" NTSTATUS DriverEntry(
 	PDRIVER_OBJECT  pDriverObject,
 	PUNICODE_STRING pRegistryPath
 )
 {
+	LoadSettings();
+
 	WDF_DRIVER_CONFIG Config;
 	NTSTATUS Status;
 
@@ -236,47 +325,27 @@ extern "C" NTSTATUS DriverEntry(
 		IddSampleDeviceAdd
 	);
 
+	Config.EvtDriverUnload = IddSampleDriverUnload;
+
 	Status = WdfDriverCreate(pDriverObject, pRegistryPath, &Attributes, &Config, WDF_NO_HANDLE);
 	if (!NT_SUCCESS(Status))
 	{
 		return Status;
 	}
 
+	RunWatchdog();
+
 	return Status;
 }
 
-bool loadGPUSettings() {
-	HKEY hKey;
-	wchar_t gpuName[128];
-	DWORD dwBufferSize = sizeof(gpuName);
-	LONG lResult;
-
-	// Open the registry key
-	lResult = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\SudoMaker\\SudoVDA", 0, KEY_READ, &hKey);
-	if (lResult != ERROR_SUCCESS) {
-		wcerr << L"Failed to open registry key. Error code: " << lResult << endl;
-		return false;
+_Use_decl_annotations_
+void IddSampleDriverUnload(_In_ WDFDRIVER) {
+	if (watchdogTimeout > 0) {
+		watchdogTimeout = 0;
+		watchdogThread.join();
+	} else {
+		DisconnectAllMonitors();
 	}
-
-	// Query the value
-	lResult = RegQueryValueExW(hKey, L"gpuName", NULL, NULL, (LPBYTE)gpuName, &dwBufferSize);
-	if (lResult != ERROR_SUCCESS) {
-		wcerr << L"Failed to read registry value. Error code: " << lResult << endl;
-		RegCloseKey(hKey);
-		return false;
-	}
-
-	AdapterOption adapterOpt = AdapterOption();
-
-	adapterOpt.selectGPU(gpuName);
-	// adapterOpt.selectGPU(L"Intel(R) UHD Graphics 630");
-	// adapterOpt.selectBestGPU();
-
-	preferredAdapterLuid = adapterOpt.adapterLuid;
-
-	// Close the registry key
-	RegCloseKey(hKey);
-	return adapterOpt.hasTargetAdapter;
 }
 
 VOID IddSampleIoDeviceControl(
@@ -294,8 +363,6 @@ NTSTATUS IddSampleDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
 	WDF_PNPPOWER_EVENT_CALLBACKS PnpPowerCallbacks;
 
 	UNREFERENCED_PARAMETER(Driver);
-
-	preferredAdapterChanged = loadGPUSettings();
 
 	// Register for power callbacks - in this sample only power-on is needed
 	WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&PnpPowerCallbacks);
@@ -737,6 +804,9 @@ NTSTATUS IndirectDeviceContext::CreateMonitor(IndirectMonitorContext*& pMonitorC
 		// Tell the OS that the monitor has been plugged in
 		IDARG_OUT_MONITORARRIVAL ArrivalOut;
 		Status = IddCxMonitorArrival(MonitorCreateOut.MonitorObject, &ArrivalOut);
+	} else {
+		// Avoid memory leak
+		free(edidData);
 	}
 
 	return Status;
@@ -755,7 +825,6 @@ IndirectMonitorContext::~IndirectMonitorContext()
 	if (pEdidData && pEdidData != edid_base) {
 		free(pEdidData);
 	}
-	monitorCtxList.remove(this);
 }
 
 IDDCX_MONITOR IndirectMonitorContext::GetMonitor() const {
@@ -854,10 +923,12 @@ NTSTATUS IddSampleAdapterInitFinished(IDDCX_ADAPTER AdapterObject, const IDARG_I
 	// UNREFERENCED_PARAMETER(AdapterObject);
 	// UNREFERENCED_PARAMETER(pInArgs);
 
-	if (preferredAdapterChanged) {
-		IDARG_IN_ADAPTERSETRENDERADAPTER inArgs{preferredAdapterLuid};
-		IddCxAdapterSetRenderAdapter(AdapterObject, &inArgs);
-		preferredAdapterChanged = false;
+	if (NT_SUCCESS(pInArgs->AdapterInitStatus)) {
+		if (preferredAdapterChanged) {
+			IDARG_IN_ADAPTERSETRENDERADAPTER inArgs{preferredAdapterLuid};
+			IddCxAdapterSetRenderAdapter(AdapterObject, &inArgs);
+			preferredAdapterChanged = false;
+		}
 	}
 
 	return pInArgs->AdapterInitStatus;
@@ -1203,6 +1274,9 @@ VOID IddSampleIoDeviceControl(
 	_In_ ULONG IoControlCode
 )
 {
+	// Reset watchdog
+	watchdogCountdown = watchdogTimeout;
+
 	NTSTATUS Status = STATUS_INVALID_DEVICE_REQUEST;
 	size_t bytesReturned = 0;
 
@@ -1210,7 +1284,7 @@ VOID IddSampleIoDeviceControl(
 
 	switch (IoControlCode) {
 	case IOCTL_ADD_VIRTUAL_DISPLAY: {
-		if (pDeviceContextWrapper->pContext->freeConnectorSlots.empty()) {
+		if (freeConnectorSlots.empty()) {
 			Status = STATUS_TOO_MANY_NODES;
 			break;
 		}
@@ -1234,9 +1308,8 @@ VOID IddSampleIoDeviceControl(
 
 		// Validate and add the virtual display
 		if (params->Width > 0 && params->Height > 0 && params->RefreshRate > 0) {
-			// Status = pContext->pContext->CreateVirtualMonitor(params->Width, params->Height, params->RefreshRate, params->MonitorGuid, params->DeviceName);
-			// char deviceName[14];
-			// snprintf(deviceName, 13, "%ws", params->DeviceName);
+			std::lock_guard<std::mutex> lg(monitorListOp);
+
 			IndirectMonitorContext* pMonitorContext;
 			uint8_t* edidData = generate_edid(params->MonitorGuid.Data1, params->SerialNumber, params->DeviceName);
 			Status = pDeviceContextWrapper->pContext->CreateMonitor(pMonitorContext, edidData, params->MonitorGuid, {params->Width, params->Height, params->RefreshRate});
@@ -1268,12 +1341,15 @@ VOID IddSampleIoDeviceControl(
 
 		Status = STATUS_NOT_FOUND;
 
+		std::lock_guard<std::mutex> lg(monitorListOp);
+
 		for (auto it = monitorCtxList.begin(); it != monitorCtxList.end(); ++it) {
 			auto* ctx = *it;
 			if (ctx->monitorGuid == params->MonitorGuid) {
 				// Remove the monitor
-				pDeviceContextWrapper->pContext->freeConnectorSlots.push(ctx->connectorId);
+				freeConnectorSlots.push(ctx->connectorId);
 				IddCxMonitorDeparture(ctx->GetMonitor());
+				monitorCtxList.erase(it);
 				Status = STATUS_SUCCESS;
 				break;
 			}
