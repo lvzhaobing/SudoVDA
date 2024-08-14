@@ -25,11 +25,12 @@ Environment:
 #include <mutex>
 
 #include <AdapterOption.h>
-#include <vdd_ioctl.h>
+#include <sudovda-ioctl.h>
 
 using namespace std;
 using namespace Microsoft::IndirectDisp;
 using namespace Microsoft::WRL;
+using namespace SUDOVDA;
 
 LUID preferredAdapterLuid{};
 bool preferredAdapterChanged = false;
@@ -1307,19 +1308,19 @@ VOID IddSampleIoDeviceControl(
 			break;
 		}
 
-		if (InputBufferLength < sizeof(VIRTUAL_DISPLAY_PARAMS) || OutputBufferLength < sizeof(VIRTUAL_DISPLAY_OUTPUT)) {
+		if (InputBufferLength < sizeof(VIRTUAL_DISPLAY_ADD_PARAMS) || OutputBufferLength < sizeof(VIRTUAL_DISPLAY_ADD_OUT)) {
 			Status = STATUS_BUFFER_TOO_SMALL;
 			break;
 		}
 
-		PVIRTUAL_DISPLAY_PARAMS params;
-		PVIRTUAL_DISPLAY_OUTPUT output;
-		Status = WdfRequestRetrieveInputBuffer(Request, sizeof(VIRTUAL_DISPLAY_PARAMS), (PVOID*)&params, NULL);
+		PVIRTUAL_DISPLAY_ADD_PARAMS params;
+		PVIRTUAL_DISPLAY_ADD_OUT output;
+		Status = WdfRequestRetrieveInputBuffer(Request, sizeof(VIRTUAL_DISPLAY_ADD_PARAMS), (PVOID*)&params, NULL);
 		if (!NT_SUCCESS(Status)) {
 			break;
 		}
 
-		Status = WdfRequestRetrieveOutputBuffer(Request, sizeof(VIRTUAL_DISPLAY_OUTPUT), (PVOID*)&output, NULL);
+		Status = WdfRequestRetrieveOutputBuffer(Request, sizeof(VIRTUAL_DISPLAY_ADD_OUT), (PVOID*)&output, NULL);
 		if (!NT_SUCCESS(Status)) {
 			break;
 		}
@@ -1340,7 +1341,7 @@ VOID IddSampleIoDeviceControl(
 
 			output->AdapterLuid = pMonitorContext->adapterLuid;
 			output->TargetId = pMonitorContext->targetId;
-			bytesReturned = sizeof(VIRTUAL_DISPLAY_OUTPUT);
+			bytesReturned = sizeof(VIRTUAL_DISPLAY_ADD_OUT);
 		}
 		else {
 			Status = STATUS_INVALID_PARAMETER;
