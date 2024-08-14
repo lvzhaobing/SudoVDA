@@ -42,9 +42,9 @@ DWORD watchdogTimeout = 3; // seconds
 DWORD watchdogCountdown = 0;
 std::thread watchdogThread;
 
-#pragma region SampleMonitors
+DWORD MaxVirtualMonitorCount = 10;
 
-static constexpr DWORD IDD_SAMPLE_MONITOR_COUNT = 10;
+#pragma region SampleMonitors
 
 // Default modes reported for edid-less monitors. The first mode is set as preferred
 static const struct VirtualMonitorMode s_DefaultModes[] =
@@ -258,6 +258,14 @@ void LoadSettings() {
 	lResult = RegQueryValueExW(hKey, L"watchdog", NULL, NULL, (LPBYTE)&_watchdogTimeout, &bufferSize);
 	if (lResult == ERROR_SUCCESS) {
 		watchdogTimeout = _watchdogTimeout;
+	}
+
+	// Query Max monitor count
+	DWORD _maxMonitorCount;
+	bufferSize = sizeof(DWORD);
+	lResult = RegQueryValueExW(hKey, L"maxMonitors", NULL, NULL, (LPBYTE)&_maxMonitorCount, &bufferSize);
+	if (lResult == ERROR_SUCCESS) {
+		MaxVirtualMonitorCount = _maxMonitorCount;
 	}
 
 	// Close the registry key
@@ -688,7 +696,7 @@ IndirectDeviceContext::IndirectDeviceContext(_In_ WDFDEVICE WdfDevice) :
 	m_WdfDevice(WdfDevice)
 {
 	m_Adapter = {};
-	for (size_t i = 0; i < IDD_SAMPLE_MONITOR_COUNT; i++) {
+	for (size_t i = 0; i < MaxVirtualMonitorCount; i++) {
 		freeConnectorSlots.push(i);
 	}
 }
@@ -714,7 +722,7 @@ void IndirectDeviceContext::InitAdapter()
 	}
 
 	// Declare basic feature support for the adapter (required)
-	AdapterCaps.MaxMonitorsSupported = IDD_SAMPLE_MONITOR_COUNT;
+	AdapterCaps.MaxMonitorsSupported = MaxVirtualMonitorCount;
 	AdapterCaps.EndPointDiagnostics.Size = sizeof(AdapterCaps.EndPointDiagnostics);
 	AdapterCaps.EndPointDiagnostics.GammaSupport = IDDCX_FEATURE_IMPLEMENTATION_NONE;
 	AdapterCaps.EndPointDiagnostics.TransmissionType = IDDCX_TRANSMISSION_TYPE_WIRED_OTHER;
@@ -753,6 +761,11 @@ void IndirectDeviceContext::InitAdapter()
 		auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(AdapterInitOut.AdapterObject);
 		pContext->pContext = this;
 	}
+}
+
+void IndirectDeviceContext::SetRenderAdapter(const LUID& AdapterLuid) {
+	IDARG_IN_ADAPTERSETRENDERADAPTER inArgs{AdapterLuid};
+	IddCxAdapterSetRenderAdapter(m_Adapter, &inArgs);
 }
 
 NTSTATUS IndirectDeviceContext::CreateMonitor(IndirectMonitorContext*& pMonitorContext, uint8_t* edidData, const GUID& containerId, const VirtualMonitorMode& preferredMode) {
@@ -1209,11 +1222,13 @@ NTSTATUS IddSampleMonitorAssignSwapChain(IDDCX_MONITOR MonitorObject, const IDAR
 {
 	auto* pMonitorContextWrapper = WdfObjectGet_IndirectMonitorContextWrapper(MonitorObject);
 
-	if (preferredAdapterChanged && memcmp(&pInArgs->RenderAdapterLuid, &preferredAdapterLuid, sizeof(LUID))) {
-		IDARG_IN_ADAPTERSETRENDERADAPTER inArgs{preferredAdapterLuid};
-		IddCxAdapterSetRenderAdapter(pMonitorContextWrapper->pContext->m_Adapter, &inArgs);
+	if (preferredAdapterChanged) {
+		if (memcmp(&pInArgs->RenderAdapterLuid, &preferredAdapterLuid, sizeof(LUID))) {
+			IDARG_IN_ADAPTERSETRENDERADAPTER inArgs{preferredAdapterLuid};
+			IddCxAdapterSetRenderAdapter(pMonitorContextWrapper->pContext->m_Adapter, &inArgs);
+			return STATUS_GRAPHICS_INDIRECT_DISPLAY_ABANDON_SWAPCHAIN;
+		}
 		preferredAdapterChanged = false;
-		return STATUS_GRAPHICS_INDIRECT_DISPLAY_ABANDON_SWAPCHAIN;
 	}
 
 	pMonitorContextWrapper->pContext->AssignSwapChain(MonitorObject, pInArgs->hSwapChain, pInArgs->RenderAdapterLuid, pInArgs->hNextSurfaceAvailable);
@@ -1278,12 +1293,12 @@ VOID IddSampleIoDeviceControl(
 )
 {
 	// Reset watchdog
-	watchdogCountdown = watchdogTimeout;
+	if (IoControlCode != IOCTL_GET_WATCHDOG) {
+		watchdogCountdown = watchdogTimeout;
+	}
 
 	NTSTATUS Status = STATUS_INVALID_DEVICE_REQUEST;
 	size_t bytesReturned = 0;
-
-	auto* pDeviceContextWrapper = WdfObjectGet_IndirectDeviceContextWrapper(Device);
 
 	switch (IoControlCode) {
 	case IOCTL_ADD_VIRTUAL_DISPLAY: {
@@ -1312,6 +1327,8 @@ VOID IddSampleIoDeviceControl(
 		// Validate and add the virtual display
 		if (params->Width > 0 && params->Height > 0 && params->RefreshRate > 0) {
 			std::lock_guard<std::mutex> lg(monitorListOp);
+
+			auto* pDeviceContextWrapper = WdfObjectGet_IndirectDeviceContextWrapper(Device);
 
 			IndirectMonitorContext* pMonitorContext;
 			uint8_t* edidData = generate_edid(params->MonitorGuid.Data1, params->SerialNumber, params->DeviceName);
@@ -1361,9 +1378,49 @@ VOID IddSampleIoDeviceControl(
 
 		break;
 	}
+	case IOCTL_SET_RENDER_ADAPTER: {
+		PVIRTUAL_DISPLAY_SET_RENDER_ADAPTER_PARAMS params;
+		Status = WdfRequestRetrieveInputBuffer(Request, sizeof(VIRTUAL_DISPLAY_SET_RENDER_ADAPTER_PARAMS), (PVOID*)&params, NULL);
+		if (!NT_SUCCESS(Status)) {
+			break;
+		}
+
+		auto* pDeviceContextWrapper = WdfObjectGet_IndirectDeviceContextWrapper(Device);
+
+		preferredAdapterLuid = params->AdapterLuid;
+		pDeviceContextWrapper->pContext->SetRenderAdapter(params->AdapterLuid);
+		preferredAdapterChanged = true;
+
+		break;
+	}
+	case IOCTL_GET_WATCHDOG: {
+		Status = STATUS_SUCCESS;
+		PVIRTUAL_DISPLAY_GET_WATCHDOG_OUT output;
+
+		Status = WdfRequestRetrieveOutputBuffer(Request, sizeof(VIRTUAL_DISPLAY_GET_WATCHDOG_OUT), (PVOID*)&output, NULL);
+		if (!NT_SUCCESS(Status)) {
+			break;
+		}
+
+		output->Timeout = watchdogTimeout;
+		output->Countdown = watchdogCountdown;
+		bytesReturned = sizeof(VIRTUAL_DISPLAY_GET_WATCHDOG_OUT);
+	}
 	case IOCTL_DRIVER_PING: {
 		Status = STATUS_SUCCESS;
 		break;
+	}
+	case IOCTL_GET_PROTOCOL_VERSION: {
+		Status = STATUS_SUCCESS;
+		PVIRTUAL_DISPLAY_GET_PROTOCOL_VERSION_OUT output;
+
+		Status = WdfRequestRetrieveOutputBuffer(Request, sizeof(VIRTUAL_DISPLAY_GET_PROTOCOL_VERSION_OUT), (PVOID*)&output, NULL);
+		if (!NT_SUCCESS(Status)) {
+			break;
+		}
+
+		output->Version = VDAProtocolVersion;
+		bytesReturned = sizeof(VIRTUAL_DISPLAY_GET_PROTOCOL_VERSION_OUT);
 	}
 	default:
 		break;

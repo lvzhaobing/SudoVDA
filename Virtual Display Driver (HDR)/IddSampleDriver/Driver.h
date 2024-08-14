@@ -113,6 +113,8 @@ namespace Microsoft
 
 			void InitAdapter();
 
+			void SetRenderAdapter(const LUID& AdapterLuid);
+
 			// void CreateMonitor();
 			NTSTATUS CreateMonitor(IndirectMonitorContext*& pMonitorContext, uint8_t* edidData, const GUID& containerId, const VirtualMonitorMode& preferredMode);
 
