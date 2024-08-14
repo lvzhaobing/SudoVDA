@@ -792,6 +792,7 @@ NTSTATUS IndirectDeviceContext::CreateMonitor(IndirectMonitorContext*& pMonitorC
 		// Create a new monitor context object and attach it to the Idd monitor object
 		auto* pMonitorContextWrapper = WdfObjectGet_IndirectMonitorContextWrapper(MonitorCreateOut.MonitorObject);
 		pMonitorContext = new IndirectMonitorContext(MonitorCreateOut.MonitorObject);
+		pMonitorContextWrapper->pContext = pMonitorContext;
 
 		pMonitorContext->monitorGuid = containerId;
 		pMonitorContext->connectorId = MonitorInfo.ConnectorIndex;
@@ -799,11 +800,13 @@ NTSTATUS IndirectDeviceContext::CreateMonitor(IndirectMonitorContext*& pMonitorC
 		pMonitorContext->preferredMode = preferredMode;
 		pMonitorContext->m_Adapter = m_Adapter;
 
-		pMonitorContextWrapper->pContext = pMonitorContext;
-
 		// Tell the OS that the monitor has been plugged in
 		IDARG_OUT_MONITORARRIVAL ArrivalOut;
 		Status = IddCxMonitorArrival(MonitorCreateOut.MonitorObject, &ArrivalOut);
+		if (NT_SUCCESS(Status)) {
+			pMonitorContext->adapterLuid = ArrivalOut.OsAdapterLuid;
+			pMonitorContext->targetId = ArrivalOut.OsTargetId;
+		}
 	} else {
 		// Avoid memory leak
 		free(edidData);
@@ -1318,7 +1321,8 @@ VOID IddSampleIoDeviceControl(
 				break;
 			}
 
-			output->ConnectorID = pMonitorContext->connectorId;
+			output->AdapterLuid = pMonitorContext->adapterLuid;
+			output->TargetId = pMonitorContext->targetId;
 			bytesReturned = sizeof(VIRTUAL_DISPLAY_OUTPUT);
 		}
 		else {

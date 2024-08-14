@@ -80,9 +80,12 @@ namespace Microsoft
 		class IndirectMonitorContext
 		{
 		public:
-			GUID monitorGuid{};
-			uint8_t* pEdidData = nullptr;
 			UINT connectorId = 0;
+			LUID adapterLuid{};
+			UINT targetId = 0;
+			GUID monitorGuid{};
+
+			uint8_t* pEdidData = nullptr;
 			VirtualMonitorMode preferredMode{};
 			IDDCX_ADAPTER m_Adapter{};
 
