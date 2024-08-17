@@ -1325,6 +1325,17 @@ VOID IddSampleIoDeviceControl(
 			break;
 		}
 
+		for (auto it = monitorCtxList.begin(); it != monitorCtxList.end(); ++it) {
+			auto* ctx = *it;
+			if (ctx->monitorGuid == params->MonitorGuid) {
+				Status = STATUS_SUCCESS;
+				output->AdapterLuid = ctx->adapterLuid;
+				output->TargetId = ctx->targetId;
+				bytesReturned = sizeof(VIRTUAL_DISPLAY_ADD_OUT);
+				break;
+			}
+		}
+
 		// Validate and add the virtual display
 		if (params->Width > 0 && params->Height > 0 && params->RefreshRate > 0) {
 			std::lock_guard<std::mutex> lg(monitorListOp);
