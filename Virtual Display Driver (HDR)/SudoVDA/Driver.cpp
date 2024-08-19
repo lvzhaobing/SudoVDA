@@ -391,38 +391,18 @@ NTSTATUS IddSampleDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
 	IddConfig.EvtIddCxMonitorAssignSwapChain = IddSampleMonitorAssignSwapChain;
 	IddConfig.EvtIddCxMonitorUnassignSwapChain = IddSampleMonitorUnassignSwapChain;
 
-	IddConfig.EvtIddCxParseMonitorDescription = IddSampleParseMonitorDescription;
-	IddConfig.EvtIddCxMonitorQueryTargetModes = IddSampleMonitorQueryModes;
-	IddConfig.EvtIddCxAdapterCommitModes = IddSampleAdapterCommitModes;
-
 	if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxAdapterQueryTargetInfo))
 	{
 		IddConfig.EvtIddCxAdapterQueryTargetInfo = IddSampleAdapterQueryTargetInfo;
-	// }
-
-	// if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxMonitorSetDefaultHdrMetaData))
-	// {
 		IddConfig.EvtIddCxMonitorSetDefaultHdrMetaData = IddSampleMonitorSetDefaultHdrMetadata;
-	// }
-
-	// if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxParseMonitorDescription2))
-	// {
 		IddConfig.EvtIddCxParseMonitorDescription2 = IddSampleParseMonitorDescription2;
-	// }
-
-	// if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxMonitorQueryTargetModes2))
-	// {
 		IddConfig.EvtIddCxMonitorQueryTargetModes2 = IddSampleMonitorQueryModes2;
-	// }
-
-	// if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxAdapterCommitModes2))
-	// {
 		IddConfig.EvtIddCxAdapterCommitModes2 = IddSampleAdapterCommitModes2;
-	// }
-
-	// if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxMonitorSetGammaRamp))
-	// {
 		IddConfig.EvtIddCxMonitorSetGammaRamp = IddSampleMonitorSetGammaRamp;
+	} else {
+		IddConfig.EvtIddCxParseMonitorDescription = IddSampleParseMonitorDescription;
+		IddConfig.EvtIddCxMonitorQueryTargetModes = IddSampleMonitorQueryModes;
+		IddConfig.EvtIddCxAdapterCommitModes = IddSampleAdapterCommitModes;
 	}
 
 	Status = IddCxDeviceInitConfig(pDeviceInit, &IddConfig);
@@ -490,7 +470,7 @@ Direct3DDevice::Direct3DDevice(LUID AdapterLuid) : AdapterLuid(AdapterLuid)
 
 Direct3DDevice::Direct3DDevice()
 {
-	AdapterLuid = preferredAdapterLuid;
+	AdapterLuid = {};
 }
 
 HRESULT Direct3DDevice::Init()
@@ -594,11 +574,11 @@ void SwapChainProcessor::RunCore()
 	{
 		ComPtr<IDXGIResource> AcquiredBuffer;
 
+		IDARG_IN_RELEASEANDACQUIREBUFFER2 BufferInArgs = {};
+		BufferInArgs.Size = sizeof(BufferInArgs);
 		IDXGIResource* pSurface;
 
 		if (IDD_IS_FUNCTION_AVAILABLE(IddCxSwapChainReleaseAndAcquireBuffer2)) {
-			IDARG_IN_RELEASEANDACQUIREBUFFER2 BufferInArgs = {};
-			BufferInArgs.Size = sizeof(BufferInArgs);
 			IDARG_OUT_RELEASEANDACQUIREBUFFER2 Buffer = {};
 			hr = IddCxSwapChainReleaseAndAcquireBuffer2(m_hSwapChain, &BufferInArgs, &Buffer);
 			pSurface = Buffer.MetaData.pSurface;
@@ -719,7 +699,7 @@ void IndirectDeviceContext::InitAdapter()
 	AdapterCaps.Size = sizeof(AdapterCaps);
 
 	if (IDD_IS_FUNCTION_AVAILABLE(IddCxSwapChainReleaseAndAcquireBuffer2)) {
-		AdapterCaps.Flags = IDDCX_ADAPTER_FLAGS_CAN_PROCESS_FP16 | IDDCX_ADAPTER_FLAGS_REMOTE_ALL_TARGET_MODES_MONITOR_COMPATIBLE;
+		AdapterCaps.Flags = IDDCX_ADAPTER_FLAGS_CAN_PROCESS_FP16;
 	}
 
 	// Declare basic feature support for the adapter (required)
@@ -912,27 +892,22 @@ void IndirectMonitorContext::UnassignSwapChain()
 
 #pragma region DDI Callbacks
 
-// void IndirectDeviceContext::CreateMonitor() {
-//  auto connectorIndex = freeConnectorSlots.front();
-// 	std::string idx = std::to_string(connectorIndex);
-// 	std::string serialStr = "VDD2408";
-// 	serialStr += idx;
-// 	std::string dispName = "SudoVDD #";
-// 	dispName += idx;
-// 	GUID containerId;
-// 	CoCreateGuid(&containerId);
-// 	uint8_t* edidData = generate_edid(0xAA55BB01 + connectorIndex, serialStr.c_str(), dispName.c_str());
+void IndirectDeviceContext::_TestCreateMonitor() {
+ auto connectorIndex = freeConnectorSlots.front();
+	std::string idx = std::to_string(connectorIndex);
+	std::string serialStr = "VDD2408";
+	serialStr += idx;
+	std::string dispName = "SudoVDD #";
+	dispName += idx;
+	GUID containerId;
+	CoCreateGuid(&containerId);
+	uint8_t* edidData = generate_edid(containerId.Data1, serialStr.c_str(), dispName.c_str());
 
-// 	VirtualMonitorInfo mInfo = {
-// 		containerId,
-// 		edidData,
-// 		{3000 + connectorIndex * 2, 2120 + connectorIndex, 120},
-// 		nullptr
-// 	};
+	VirtualMonitorMode mode{3000, 2120, 120};
 
-//  IndirectMonitorContext*& pMonitorContext;
-// 	CreateMonitor(pMonitorContext, edidData, containerId, {});
-// }
+	IndirectMonitorContext* pContext;
+	CreateMonitor(pContext, edidData, containerId, mode);
+}
 
 _Use_decl_annotations_
 NTSTATUS IddSampleAdapterInitFinished(IDDCX_ADAPTER AdapterObject, const IDARG_IN_ADAPTER_INIT_FINISHED* pInArgs)
@@ -948,17 +923,16 @@ NTSTATUS IddSampleAdapterInitFinished(IDDCX_ADAPTER AdapterObject, const IDARG_I
 		}
 	}
 
-	return pInArgs->AdapterInitStatus;
-
 	// auto* pDeviceContextWrapper = WdfObjectGet_IndirectDeviceContextWrapper(AdapterObject);
 	// if (NT_SUCCESS(pInArgs->AdapterInitStatus))
 	// {
 	// 	for (size_t i = 0; i < 3; i++) {
-	// 		pDeviceContextWrapper->pContext->CreateMonitor();
+	// 		pDeviceContextWrapper->pContext->_TestCreateMonitor();
 	// 	}
 	// }
 
 	// return STATUS_SUCCESS;
+	return pInArgs->AdapterInitStatus;
 }
 
 _Use_decl_annotations_
@@ -1089,8 +1063,6 @@ NTSTATUS IddSampleParseMonitorDescription2(
 			);
 		}
 
-		pOutArgs->PreferredMonitorModeIdx = 1;
-
 		if (pPreferredMode && pPreferredMode->Width) {
 			pInArgs->pMonitorModes[std::size(s_DefaultModes)] = CreateIddCxMonitorMode2(
 				pPreferredMode->Width,
@@ -1100,6 +1072,8 @@ NTSTATUS IddSampleParseMonitorDescription2(
 			);
 
 			pOutArgs->PreferredMonitorModeIdx = std::size(s_DefaultModes);
+		} else {
+			pOutArgs->PreferredMonitorModeIdx = 1;
 		}
 
 		return STATUS_SUCCESS;
@@ -1254,7 +1228,7 @@ NTSTATUS IddSampleAdapterQueryTargetInfo(
 	UNREFERENCED_PARAMETER(AdapterObject);
 	UNREFERENCED_PARAMETER(pInArgs);
 	pOutArgs->TargetCaps = IDDCX_TARGET_CAPS_HIGH_COLOR_SPACE;
-	pOutArgs->DitheringSupport.Rgb = IDDCX_BITS_PER_COMPONENT_8 | IDDCX_BITS_PER_COMPONENT_10;
+	pOutArgs->DitheringSupport.Rgb = IDDCX_BITS_PER_COMPONENT_10;
 
 	return STATUS_SUCCESS;
 }
@@ -1325,15 +1299,22 @@ VOID IddSampleIoDeviceControl(
 			break;
 		}
 
+		bool guidFound = false;
+
 		for (auto it = monitorCtxList.begin(); it != monitorCtxList.end(); ++it) {
 			auto* ctx = *it;
 			if (ctx->monitorGuid == params->MonitorGuid) {
-				Status = STATUS_SUCCESS;
+				guidFound = true;
 				output->AdapterLuid = ctx->adapterLuid;
 				output->TargetId = ctx->targetId;
 				bytesReturned = sizeof(VIRTUAL_DISPLAY_ADD_OUT);
 				break;
 			}
+		}
+
+		if (guidFound) {
+			Status = STATUS_SUCCESS;
+			break;
 		}
 
 		// Validate and add the virtual display
