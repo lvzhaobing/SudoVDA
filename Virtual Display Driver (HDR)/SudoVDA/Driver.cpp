@@ -170,27 +170,27 @@ static IDDCX_TARGET_MODE2 CreateIddCxTargetMode2(DWORD Width, DWORD Height, DWOR
 
 extern "C" DRIVER_INITIALIZE DriverEntry;
 
-EVT_WDF_DRIVER_UNLOAD IddSampleDriverUnload;
-EVT_WDF_DRIVER_DEVICE_ADD IddSampleDeviceAdd;
-EVT_WDF_DEVICE_D0_ENTRY IddSampleDeviceD0Entry;
+EVT_WDF_DRIVER_UNLOAD SudoVDADriverUnload;
+EVT_WDF_DRIVER_DEVICE_ADD SudoVDADeviceAdd;
+EVT_WDF_DEVICE_D0_ENTRY SudoVDADeviceD0Entry;
 
-EVT_IDD_CX_ADAPTER_INIT_FINISHED IddSampleAdapterInitFinished;
-EVT_IDD_CX_ADAPTER_COMMIT_MODES IddSampleAdapterCommitModes;
+EVT_IDD_CX_ADAPTER_INIT_FINISHED SudoVDAAdapterInitFinished;
+EVT_IDD_CX_ADAPTER_COMMIT_MODES SudoVDAAdapterCommitModes;
 
-EVT_IDD_CX_PARSE_MONITOR_DESCRIPTION IddSampleParseMonitorDescription;
-EVT_IDD_CX_MONITOR_GET_DEFAULT_DESCRIPTION_MODES IddSampleMonitorGetDefaultModes;
-EVT_IDD_CX_MONITOR_QUERY_TARGET_MODES IddSampleMonitorQueryModes;
+EVT_IDD_CX_PARSE_MONITOR_DESCRIPTION SudoVDAParseMonitorDescription;
+EVT_IDD_CX_MONITOR_GET_DEFAULT_DESCRIPTION_MODES SudoVDAMonitorGetDefaultModes;
+EVT_IDD_CX_MONITOR_QUERY_TARGET_MODES SudoVDAMonitorQueryModes;
 
-EVT_IDD_CX_MONITOR_ASSIGN_SWAPCHAIN IddSampleMonitorAssignSwapChain;
-EVT_IDD_CX_MONITOR_UNASSIGN_SWAPCHAIN IddSampleMonitorUnassignSwapChain;
+EVT_IDD_CX_MONITOR_ASSIGN_SWAPCHAIN SudoVDAMonitorAssignSwapChain;
+EVT_IDD_CX_MONITOR_UNASSIGN_SWAPCHAIN SudoVDAMonitorUnassignSwapChain;
 
-EVT_IDD_CX_ADAPTER_QUERY_TARGET_INFO IddSampleAdapterQueryTargetInfo;
-EVT_IDD_CX_MONITOR_SET_DEFAULT_HDR_METADATA IddSampleMonitorSetDefaultHdrMetadata;
-EVT_IDD_CX_PARSE_MONITOR_DESCRIPTION2 IddSampleParseMonitorDescription2;
-EVT_IDD_CX_MONITOR_QUERY_TARGET_MODES2 IddSampleMonitorQueryModes2;
-EVT_IDD_CX_ADAPTER_COMMIT_MODES2 IddSampleAdapterCommitModes2;
+EVT_IDD_CX_ADAPTER_QUERY_TARGET_INFO SudoVDAAdapterQueryTargetInfo;
+EVT_IDD_CX_MONITOR_SET_DEFAULT_HDR_METADATA SudoVDAMonitorSetDefaultHdrMetadata;
+EVT_IDD_CX_PARSE_MONITOR_DESCRIPTION2 SudoVDAParseMonitorDescription2;
+EVT_IDD_CX_MONITOR_QUERY_TARGET_MODES2 SudoVDAMonitorQueryModes2;
+EVT_IDD_CX_ADAPTER_COMMIT_MODES2 SudoVDAAdapterCommitModes2;
 
-EVT_IDD_CX_MONITOR_SET_GAMMA_RAMP IddSampleMonitorSetGammaRamp;
+EVT_IDD_CX_MONITOR_SET_GAMMA_RAMP SudoVDAMonitorSetGammaRamp;
 
 struct IndirectDeviceContextWrapper
 {
@@ -331,10 +331,10 @@ extern "C" NTSTATUS DriverEntry(
 	WDF_OBJECT_ATTRIBUTES_INIT(&Attributes);
 
 	WDF_DRIVER_CONFIG_INIT(&Config,
-		IddSampleDeviceAdd
+		SudoVDADeviceAdd
 	);
 
-	Config.EvtDriverUnload = IddSampleDriverUnload;
+	Config.EvtDriverUnload = SudoVDADriverUnload;
 
 	Status = WdfDriverCreate(pDriverObject, pRegistryPath, &Attributes, &Config, WDF_NO_HANDLE);
 	if (!NT_SUCCESS(Status))
@@ -348,7 +348,7 @@ extern "C" NTSTATUS DriverEntry(
 }
 
 _Use_decl_annotations_
-void IddSampleDriverUnload(_In_ WDFDRIVER) {
+void SudoVDADriverUnload(_In_ WDFDRIVER) {
 	if (watchdogTimeout > 0) {
 		watchdogTimeout = 0;
 		watchdogThread.join();
@@ -357,7 +357,7 @@ void IddSampleDriverUnload(_In_ WDFDRIVER) {
 	}
 }
 
-VOID IddSampleIoDeviceControl(
+VOID SudoVDAIoDeviceControl(
 	_In_ WDFDEVICE Device,
 	_In_ WDFREQUEST Request,
 	_In_ size_t OutputBufferLength,
@@ -366,7 +366,7 @@ VOID IddSampleIoDeviceControl(
 );
 
 _Use_decl_annotations_
-NTSTATUS IddSampleDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
+NTSTATUS SudoVDADeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
 {
 	NTSTATUS Status = STATUS_SUCCESS;
 	WDF_PNPPOWER_EVENT_CALLBACKS PnpPowerCallbacks;
@@ -375,7 +375,7 @@ NTSTATUS IddSampleDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
 
 	// Register for power callbacks - in this sample only power-on is needed
 	WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&PnpPowerCallbacks);
-	PnpPowerCallbacks.EvtDeviceD0Entry = IddSampleDeviceD0Entry;
+	PnpPowerCallbacks.EvtDeviceD0Entry = SudoVDADeviceD0Entry;
 	WdfDeviceInitSetPnpPowerEventCallbacks(pDeviceInit, &PnpPowerCallbacks);
 
 	IDD_CX_CLIENT_CONFIG IddConfig;
@@ -383,26 +383,26 @@ NTSTATUS IddSampleDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
 
 	// If the driver wishes to handle custom IoDeviceControl requests, it's necessary to use this callback since IddCx
 	// redirects IoDeviceControl requests to an internal queue.
-	IddConfig.EvtIddCxDeviceIoControl = IddSampleIoDeviceControl;
+	IddConfig.EvtIddCxDeviceIoControl = SudoVDAIoDeviceControl;
 
-	IddConfig.EvtIddCxAdapterInitFinished = IddSampleAdapterInitFinished;
+	IddConfig.EvtIddCxAdapterInitFinished = SudoVDAAdapterInitFinished;
 
-	IddConfig.EvtIddCxMonitorGetDefaultDescriptionModes = IddSampleMonitorGetDefaultModes;
-	IddConfig.EvtIddCxMonitorAssignSwapChain = IddSampleMonitorAssignSwapChain;
-	IddConfig.EvtIddCxMonitorUnassignSwapChain = IddSampleMonitorUnassignSwapChain;
+	IddConfig.EvtIddCxMonitorGetDefaultDescriptionModes = SudoVDAMonitorGetDefaultModes;
+	IddConfig.EvtIddCxMonitorAssignSwapChain = SudoVDAMonitorAssignSwapChain;
+	IddConfig.EvtIddCxMonitorUnassignSwapChain = SudoVDAMonitorUnassignSwapChain;
 
 	if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxAdapterQueryTargetInfo))
 	{
-		IddConfig.EvtIddCxAdapterQueryTargetInfo = IddSampleAdapterQueryTargetInfo;
-		IddConfig.EvtIddCxMonitorSetDefaultHdrMetaData = IddSampleMonitorSetDefaultHdrMetadata;
-		IddConfig.EvtIddCxParseMonitorDescription2 = IddSampleParseMonitorDescription2;
-		IddConfig.EvtIddCxMonitorQueryTargetModes2 = IddSampleMonitorQueryModes2;
-		IddConfig.EvtIddCxAdapterCommitModes2 = IddSampleAdapterCommitModes2;
-		IddConfig.EvtIddCxMonitorSetGammaRamp = IddSampleMonitorSetGammaRamp;
+		IddConfig.EvtIddCxAdapterQueryTargetInfo = SudoVDAAdapterQueryTargetInfo;
+		IddConfig.EvtIddCxMonitorSetDefaultHdrMetaData = SudoVDAMonitorSetDefaultHdrMetadata;
+		IddConfig.EvtIddCxParseMonitorDescription2 = SudoVDAParseMonitorDescription2;
+		IddConfig.EvtIddCxMonitorQueryTargetModes2 = SudoVDAMonitorQueryModes2;
+		IddConfig.EvtIddCxAdapterCommitModes2 = SudoVDAAdapterCommitModes2;
+		IddConfig.EvtIddCxMonitorSetGammaRamp = SudoVDAMonitorSetGammaRamp;
 	} else {
-		IddConfig.EvtIddCxParseMonitorDescription = IddSampleParseMonitorDescription;
-		IddConfig.EvtIddCxMonitorQueryTargetModes = IddSampleMonitorQueryModes;
-		IddConfig.EvtIddCxAdapterCommitModes = IddSampleAdapterCommitModes;
+		IddConfig.EvtIddCxParseMonitorDescription = SudoVDAParseMonitorDescription;
+		IddConfig.EvtIddCxMonitorQueryTargetModes = SudoVDAMonitorQueryModes;
+		IddConfig.EvtIddCxAdapterCommitModes = SudoVDAAdapterCommitModes;
 	}
 
 	Status = IddCxDeviceInitConfig(pDeviceInit, &IddConfig);
@@ -450,7 +450,7 @@ NTSTATUS IddSampleDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
 }
 
 _Use_decl_annotations_
-NTSTATUS IddSampleDeviceD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
+NTSTATUS SudoVDADeviceD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
 {
 	UNREFERENCED_PARAMETER(PreviousState);
 
@@ -910,7 +910,7 @@ void IndirectDeviceContext::_TestCreateMonitor() {
 }
 
 _Use_decl_annotations_
-NTSTATUS IddSampleAdapterInitFinished(IDDCX_ADAPTER AdapterObject, const IDARG_IN_ADAPTER_INIT_FINISHED* pInArgs)
+NTSTATUS SudoVDAAdapterInitFinished(IDDCX_ADAPTER AdapterObject, const IDARG_IN_ADAPTER_INIT_FINISHED* pInArgs)
 {
 	// UNREFERENCED_PARAMETER(AdapterObject);
 	// UNREFERENCED_PARAMETER(pInArgs);
@@ -936,7 +936,7 @@ NTSTATUS IddSampleAdapterInitFinished(IDDCX_ADAPTER AdapterObject, const IDARG_I
 }
 
 _Use_decl_annotations_
-NTSTATUS IddSampleAdapterCommitModes(IDDCX_ADAPTER AdapterObject, const IDARG_IN_COMMITMODES* pInArgs)
+NTSTATUS SudoVDAAdapterCommitModes(IDDCX_ADAPTER AdapterObject, const IDARG_IN_COMMITMODES* pInArgs)
 {
 	UNREFERENCED_PARAMETER(AdapterObject);
 	UNREFERENCED_PARAMETER(pInArgs);
@@ -953,7 +953,7 @@ NTSTATUS IddSampleAdapterCommitModes(IDDCX_ADAPTER AdapterObject, const IDARG_IN
 }
 
 _Use_decl_annotations_
-NTSTATUS IddSampleAdapterCommitModes2(
+NTSTATUS SudoVDAAdapterCommitModes2(
 	IDDCX_ADAPTER AdapterObject,
 	const IDARG_IN_COMMITMODES2* pInArgs
 )
@@ -965,7 +965,7 @@ NTSTATUS IddSampleAdapterCommitModes2(
 }
 
 _Use_decl_annotations_
-NTSTATUS IddSampleParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION* pInArgs, IDARG_OUT_PARSEMONITORDESCRIPTION* pOutArgs)
+NTSTATUS SudoVDAParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION* pInArgs, IDARG_OUT_PARSEMONITORDESCRIPTION* pOutArgs)
 {
 	// ==============================
 	// TODO: In a real driver, this function would be called to generate monitor modes for an EDID by parsing it. In
@@ -1024,7 +1024,7 @@ NTSTATUS IddSampleParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION
 }
 
 _Use_decl_annotations_
-NTSTATUS IddSampleParseMonitorDescription2(
+NTSTATUS SudoVDAParseMonitorDescription2(
 	const IDARG_IN_PARSEMONITORDESCRIPTION2* pInArgs,
 	IDARG_OUT_PARSEMONITORDESCRIPTION* pOutArgs
 )
@@ -1081,7 +1081,7 @@ NTSTATUS IddSampleParseMonitorDescription2(
 }
 
 _Use_decl_annotations_
-NTSTATUS IddSampleMonitorGetDefaultModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_GETDEFAULTDESCRIPTIONMODES* pInArgs, IDARG_OUT_GETDEFAULTDESCRIPTIONMODES* pOutArgs)
+NTSTATUS SudoVDAMonitorGetDefaultModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_GETDEFAULTDESCRIPTIONMODES* pInArgs, IDARG_OUT_GETDEFAULTDESCRIPTIONMODES* pOutArgs)
 {
 	// ==============================
 	// TODO: In a real driver, this function would be called to generate monitor modes for a monitor with no EDID.
@@ -1109,7 +1109,7 @@ NTSTATUS IddSampleMonitorGetDefaultModes(IDDCX_MONITOR MonitorObject, const IDAR
 }
 
 _Use_decl_annotations_
-NTSTATUS IddSampleMonitorQueryModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_QUERYTARGETMODES* pInArgs, IDARG_OUT_QUERYTARGETMODES* pOutArgs)
+NTSTATUS SudoVDAMonitorQueryModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_QUERYTARGETMODES* pInArgs, IDARG_OUT_QUERYTARGETMODES* pOutArgs)
 {
 	UNREFERENCED_PARAMETER(MonitorObject);
 
@@ -1151,7 +1151,7 @@ NTSTATUS IddSampleMonitorQueryModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_
 }
 
 _Use_decl_annotations_
-NTSTATUS IddSampleMonitorQueryModes2(IDDCX_MONITOR MonitorObject, const IDARG_IN_QUERYTARGETMODES2* pInArgs, IDARG_OUT_QUERYTARGETMODES* pOutArgs)
+NTSTATUS SudoVDAMonitorQueryModes2(IDDCX_MONITOR MonitorObject, const IDARG_IN_QUERYTARGETMODES2* pInArgs, IDARG_OUT_QUERYTARGETMODES* pOutArgs)
 {
 	UNREFERENCED_PARAMETER(MonitorObject);
 
@@ -1193,7 +1193,7 @@ NTSTATUS IddSampleMonitorQueryModes2(IDDCX_MONITOR MonitorObject, const IDARG_IN
 }
 
 _Use_decl_annotations_
-NTSTATUS IddSampleMonitorAssignSwapChain(IDDCX_MONITOR MonitorObject, const IDARG_IN_SETSWAPCHAIN* pInArgs)
+NTSTATUS SudoVDAMonitorAssignSwapChain(IDDCX_MONITOR MonitorObject, const IDARG_IN_SETSWAPCHAIN* pInArgs)
 {
 	auto* pMonitorContextWrapper = WdfObjectGet_IndirectMonitorContextWrapper(MonitorObject);
 
@@ -1211,7 +1211,7 @@ NTSTATUS IddSampleMonitorAssignSwapChain(IDDCX_MONITOR MonitorObject, const IDAR
 }
 
 _Use_decl_annotations_
-NTSTATUS IddSampleMonitorUnassignSwapChain(IDDCX_MONITOR MonitorObject)
+NTSTATUS SudoVDAMonitorUnassignSwapChain(IDDCX_MONITOR MonitorObject)
 {
 	auto* pMonitorContextWrapper = WdfObjectGet_IndirectMonitorContextWrapper(MonitorObject);
 	pMonitorContextWrapper->pContext->UnassignSwapChain();
@@ -1219,7 +1219,7 @@ NTSTATUS IddSampleMonitorUnassignSwapChain(IDDCX_MONITOR MonitorObject)
 }
 
 _Use_decl_annotations_
-NTSTATUS IddSampleAdapterQueryTargetInfo(
+NTSTATUS SudoVDAAdapterQueryTargetInfo(
 	IDDCX_ADAPTER AdapterObject,
 	IDARG_IN_QUERYTARGET_INFO* pInArgs,
 	IDARG_OUT_QUERYTARGET_INFO* pOutArgs
@@ -1234,7 +1234,7 @@ NTSTATUS IddSampleAdapterQueryTargetInfo(
 }
 
 _Use_decl_annotations_
-NTSTATUS IddSampleMonitorSetDefaultHdrMetadata(
+NTSTATUS SudoVDAMonitorSetDefaultHdrMetadata(
 	IDDCX_MONITOR MonitorObject,
 	const IDARG_IN_MONITOR_SET_DEFAULT_HDR_METADATA* pInArgs
 )
@@ -1246,7 +1246,7 @@ NTSTATUS IddSampleMonitorSetDefaultHdrMetadata(
 }
 
 _Use_decl_annotations_
-NTSTATUS IddSampleMonitorSetGammaRamp(
+NTSTATUS SudoVDAMonitorSetGammaRamp(
 	IDDCX_MONITOR MonitorObject,
 	const IDARG_IN_SET_GAMMARAMP* pInArgs
 )
@@ -1259,7 +1259,7 @@ NTSTATUS IddSampleMonitorSetGammaRamp(
 
 #pragma endregion
 
-VOID IddSampleIoDeviceControl(
+VOID SudoVDAIoDeviceControl(
 	_In_ WDFDEVICE Device,
 	_In_ WDFREQUEST Request,
 	_In_ size_t OutputBufferLength,
