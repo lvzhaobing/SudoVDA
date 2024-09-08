@@ -47,7 +47,7 @@ DWORD MaxVirtualMonitorCount = 10;
 
 #pragma region SampleMonitors
 
-// Default modes reported for edid-less monitors. The first mode is set as preferred
+// Default modes reported for edid-less monitors. The second mode is set as preferred
 static const struct VirtualMonitorMode s_DefaultModes[] =
 {
 	{800, 600, 30},
@@ -574,11 +574,11 @@ void SwapChainProcessor::RunCore()
 	{
 		ComPtr<IDXGIResource> AcquiredBuffer;
 
-		IDARG_IN_RELEASEANDACQUIREBUFFER2 BufferInArgs = {};
-		BufferInArgs.Size = sizeof(BufferInArgs);
 		IDXGIResource* pSurface;
 
 		if (IDD_IS_FUNCTION_AVAILABLE(IddCxSwapChainReleaseAndAcquireBuffer2)) {
+			IDARG_IN_RELEASEANDACQUIREBUFFER2 BufferInArgs = {};
+			BufferInArgs.Size = sizeof(BufferInArgs);
 			IDARG_OUT_RELEASEANDACQUIREBUFFER2 Buffer = {};
 			hr = IddCxSwapChainReleaseAndAcquireBuffer2(m_hSwapChain, &BufferInArgs, &Buffer);
 			pSurface = Buffer.MetaData.pSurface;
