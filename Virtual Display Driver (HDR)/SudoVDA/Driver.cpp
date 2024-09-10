@@ -39,6 +39,7 @@ std::mutex monitorListOp;
 std::queue<size_t> freeConnectorSlots;
 std::list<IndirectMonitorContext*> monitorCtxList;
 
+bool testMode = false;
 DWORD watchdogTimeout = 3; // seconds
 DWORD watchdogCountdown = 0;
 std::thread watchdogThread;
@@ -251,6 +252,14 @@ void LoadSettings() {
 
 		preferredAdapterLuid = adapterOpt.adapterLuid;
 		preferredAdapterChanged = adapterOpt.hasTargetAdapter;
+	}
+
+	// Query Test mode
+	DWORD _testMode;
+	bufferSize = sizeof(DWORD);
+	lResult = RegQueryValueExW(hKey, L"testMode", NULL, NULL, (LPBYTE)&_testMode, &bufferSize);
+	if (lResult == ERROR_SUCCESS) {
+		testMode = !!_testMode;
 	}
 
 	// Query watchdog
@@ -893,7 +902,7 @@ void IndirectMonitorContext::UnassignSwapChain()
 #pragma region DDI Callbacks
 
 void IndirectDeviceContext::_TestCreateMonitor() {
- auto connectorIndex = freeConnectorSlots.front();
+	auto connectorIndex = freeConnectorSlots.front();
 	std::string idx = std::to_string(connectorIndex);
 	std::string serialStr = "VDD2408";
 	serialStr += idx;
@@ -903,7 +912,7 @@ void IndirectDeviceContext::_TestCreateMonitor() {
 	CoCreateGuid(&containerId);
 	uint8_t* edidData = generate_edid(containerId.Data1, serialStr.c_str(), dispName.c_str());
 
-	VirtualMonitorMode mode{3000, 2120, 120};
+	VirtualMonitorMode mode{3000 + (DWORD)connectorIndex * 2, 2120 + (DWORD)connectorIndex, 120 + (DWORD)connectorIndex};
 
 	IndirectMonitorContext* pContext;
 	CreateMonitor(pContext, edidData, containerId, mode);
@@ -923,13 +932,15 @@ NTSTATUS SudoVDAAdapterInitFinished(IDDCX_ADAPTER AdapterObject, const IDARG_IN_
 		}
 	}
 
-	// auto* pDeviceContextWrapper = WdfObjectGet_IndirectDeviceContextWrapper(AdapterObject);
-	// if (NT_SUCCESS(pInArgs->AdapterInitStatus))
-	// {
-	// 	for (size_t i = 0; i < 3; i++) {
-	// 		pDeviceContextWrapper->pContext->_TestCreateMonitor();
-	// 	}
-	// }
+	if (testMode) {
+		auto* pDeviceContextWrapper = WdfObjectGet_IndirectDeviceContextWrapper(AdapterObject);
+		if (NT_SUCCESS(pInArgs->AdapterInitStatus))
+		{
+			for (size_t i = 0; i < 3; i++) {
+				pDeviceContextWrapper->pContext->_TestCreateMonitor();
+			}
+		}
+	}
 
 	// return STATUS_SUCCESS;
 	return pInArgs->AdapterInitStatus;
