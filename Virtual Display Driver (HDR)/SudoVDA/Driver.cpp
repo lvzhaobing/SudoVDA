@@ -325,6 +325,10 @@ void RunWatchdog() {
 	}
 }
 
+void SetHighPriority() {
+	SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
+}
+
 _Use_decl_annotations_
 extern "C" NTSTATUS DriverEntry(
 	PDRIVER_OBJECT  pDriverObject,
@@ -352,6 +356,8 @@ extern "C" NTSTATUS DriverEntry(
 	}
 
 	RunWatchdog();
+
+	SetHighPriority();
 
 	return Status;
 }
@@ -547,7 +553,7 @@ void SwapChainProcessor::Run()
 	// For improved performance, make use of the Multimedia Class Scheduler Service, which will intelligently
 	// prioritize this thread for improved throughput in high CPU-load scenarios.
 	DWORD AvTask = 0;
-	HANDLE AvTaskHandle = AvSetMmThreadCharacteristicsW(L"Distribution", &AvTask);
+	HANDLE AvTaskHandle = AvSetMmThreadCharacteristicsW(L"DisplayPostProcessing", &AvTask);
 
 	RunCore();
 
