@@ -62,7 +62,7 @@ static const UINT mode_scale_factors[] = {
 // Default modes reported for edid-less monitors. The second mode is set as preferred
 static const struct VirtualMonitorMode s_DefaultModes[] = {
 	{800, 600, 30000},
-	{800, 600, 59940},
+	// {800, 600, 59940},
 	{800, 600, 60000},
 	{800, 600, 72000},
 	{800, 600, 90000},
@@ -70,14 +70,14 @@ static const struct VirtualMonitorMode s_DefaultModes[] = {
 	{800, 600, 144000},
 	{800, 600, 240000},
 	{1280, 720, 30000},
-	{1280, 720, 59940},
+	// {1280, 720, 59940},
 	{1280, 720, 60000},
 	{1280, 720, 72000},
 	{1280, 720, 90000},
 	{1280, 720, 120000},
 	{1280, 720, 144000},
 	{1366, 768, 30000},
-	{1366, 768, 59940},
+	// {1366, 768, 59940},
 	{1366, 768, 60000},
 	{1366, 768, 72000},
 	{1366, 768, 90000},
@@ -85,7 +85,7 @@ static const struct VirtualMonitorMode s_DefaultModes[] = {
 	{1366, 768, 144000},
 	{1366, 768, 240000},
 	{1920, 1080, 30000},
-	{1920, 1080, 59940},
+	// {1920, 1080, 59940},
 	{1920, 1080, 60000},
 	{1920, 1080, 72000},
 	{1920, 1080, 90000},
@@ -93,7 +93,7 @@ static const struct VirtualMonitorMode s_DefaultModes[] = {
 	{1920, 1080, 144000},
 	{1920, 1080, 240000},
 	{2560, 1440, 30000},
-	{2560, 1440, 59940},
+	// {2560, 1440, 59940},
 	{2560, 1440, 60000},
 	{2560, 1440, 72000},
 	{2560, 1440, 90000},
@@ -101,7 +101,7 @@ static const struct VirtualMonitorMode s_DefaultModes[] = {
 	{2560, 1440, 144000},
 	{2560, 1440, 240000},
 	{3840, 2160, 30000},
-	{3840, 2160, 59940},
+	// {3840, 2160, 59940},
 	{3840, 2160, 60000},
 	{3840, 2160, 72000},
 	{3840, 2160, 90000},
@@ -930,7 +930,8 @@ void IndirectMonitorContext::AssignSwapChain(const IDDCX_MONITOR& MonitorObject,
 			nullptr, //TODO set proper SECURITY_ATTRIBUTES
 			false,
 			false,
-			"arbitraryMouseEventName");;
+			"arbitraryMouseEventName"
+		);
 
 		if (!mouseEvent)
 		{
@@ -1080,15 +1081,28 @@ NTSTATUS SudoVDAParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION* 
 	}
 	else
 	{
+		float vsyncMultiplier = 1;
+
+		if (pPreferredMode && pPreferredMode->VSync) {
+			float fVSync = (float)pPreferredMode->VSync / 1000;
+			vsyncMultiplier = fVSync / round(fVSync);
+			if (vsyncMultiplier > 1) {
+				vsyncMultiplier = 1;
+			}
+		}
+
 		for (DWORD ModeIndex = 0; ModeIndex < std::size(s_DefaultModes); ModeIndex++) {
+			auto vsyncTarget = s_DefaultModes[ModeIndex].VSync;
+			if (vsyncMultiplier < 1 && !(vsyncTarget % 1000)) {
+				vsyncTarget = (DWORD)(vsyncTarget * vsyncMultiplier);
+			}
 			pInArgs->pMonitorModes[ModeIndex] = CreateIddCxMonitorMode(
 				s_DefaultModes[ModeIndex].Width,
 				s_DefaultModes[ModeIndex].Height,
-				s_DefaultModes[ModeIndex].VSync,
+				vsyncTarget,
 				IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR
 			);
 		}
-
 
 		if (pPreferredMode && pPreferredMode->Width) {
 			auto width = pPreferredMode->Width;
@@ -1155,11 +1169,25 @@ NTSTATUS SudoVDAParseMonitorDescription2(
 	}
 	else
 	{
+		float vsyncMultiplier = 1;
+
+		if (pPreferredMode && pPreferredMode->VSync) {
+			float fVSync = (float)pPreferredMode->VSync / 1000;
+			vsyncMultiplier = fVSync / round(fVSync);
+			if (vsyncMultiplier > 1) {
+				vsyncMultiplier = 1;
+			}
+		}
+
 		for (DWORD ModeIndex = 0; ModeIndex < std::size(s_DefaultModes); ModeIndex++) {
+			auto vsyncTarget = s_DefaultModes[ModeIndex].VSync;
+			if (vsyncMultiplier < 1 && !(vsyncTarget % 1000)) {
+				vsyncTarget = (DWORD)(vsyncTarget * vsyncMultiplier);
+			}
 			pInArgs->pMonitorModes[ModeIndex] = CreateIddCxMonitorMode2(
 				s_DefaultModes[ModeIndex].Width,
 				s_DefaultModes[ModeIndex].Height,
-				s_DefaultModes[ModeIndex].VSync,
+				vsyncTarget,
 				IDDCX_MONITOR_MODE_ORIGIN_MONITORDESCRIPTOR
 			);
 		}
@@ -1245,21 +1273,35 @@ NTSTATUS SudoVDAMonitorQueryModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_QU
 	if (pInArgs->TargetModeBufferInputCount >= pOutArgs->TargetModeBufferOutputCount) {
 		vector<IDDCX_TARGET_MODE> TargetModes;
 
+		auto width = pMonitorContextWrapper->pContext->preferredMode.Width;
+		auto height = pMonitorContextWrapper->pContext->preferredMode.Height;
+		auto vsync = pMonitorContextWrapper->pContext->preferredMode.VSync;
+
+		float vsyncMultiplier = 1;
+
+		{
+			float fVSync = (float)vsync / 1000;
+			vsyncMultiplier = fVSync / round(fVSync);
+			if (vsyncMultiplier > 1) {
+				vsyncMultiplier = 1;
+			}
+		}
+
 		// Create a set of modes supported for frame processing and scan-out. These are typically not based on the
 		// monitor's descriptor and instead are based on the static processing capability of the device. The OS will
 		// report the available set of modes for a given output as the intersection of monitor modes with target modes.
 
 		for (size_t i = 0; i < std::size(s_DefaultModes); i++) {
+			auto vsyncTarget = s_DefaultModes[i].VSync;
+			if (vsyncMultiplier < 1 && !(vsyncTarget % 1000)) {
+				vsyncTarget = (DWORD)(vsyncTarget * vsyncMultiplier);
+			}
 			TargetModes.push_back(CreateIddCxTargetMode(
 				s_DefaultModes[i].Width,
 				s_DefaultModes[i].Height,
-				s_DefaultModes[i].VSync
+				vsyncTarget
 			));
 		}
-
-		auto width = pMonitorContextWrapper->pContext->preferredMode.Width;
-		auto height = pMonitorContextWrapper->pContext->preferredMode.Height;
-		auto vsync = pMonitorContextWrapper->pContext->preferredMode.VSync;
 
 		for (uint8_t idx = 0; idx < std::size(mode_scale_factors); idx++) {
 			auto scalc_factor = mode_scale_factors[idx];
@@ -1303,21 +1345,31 @@ NTSTATUS SudoVDAMonitorQueryModes2(IDDCX_MONITOR MonitorObject, const IDARG_IN_Q
 	if (pInArgs->TargetModeBufferInputCount >= pOutArgs->TargetModeBufferOutputCount) {
 		vector<IDDCX_TARGET_MODE2> TargetModes;
 
-		// Create a set of modes supported for frame processing and scan-out. These are typically not based on the
-		// monitor's descriptor and instead are based on the static processing capability of the device. The OS will
-		// report the available set of modes for a given output as the intersection of monitor modes with target modes.
-
-		for (size_t i = 0; i < std::size(s_DefaultModes); i++) {
-			TargetModes.push_back(CreateIddCxTargetMode2(
-				s_DefaultModes[i].Width,
-				s_DefaultModes[i].Height,
-				s_DefaultModes[i].VSync
-			));
-		}
-
 		auto width = pMonitorContextWrapper->pContext->preferredMode.Width;
 		auto height = pMonitorContextWrapper->pContext->preferredMode.Height;
 		auto vsync = pMonitorContextWrapper->pContext->preferredMode.VSync;
+
+		float vsyncMultiplier = 1;
+
+		{
+			float fVSync = (float)vsync / 1000;
+			vsyncMultiplier = fVSync / round(fVSync);
+			if (vsyncMultiplier > 1) {
+				vsyncMultiplier = 1;
+			}
+		}
+
+		for (size_t i = 0; i < std::size(s_DefaultModes); i++) {
+			auto vsyncTarget = s_DefaultModes[i].VSync;
+			if (vsyncMultiplier < 1 && !(vsyncTarget % 1000)) {
+				vsyncTarget = (DWORD)(vsyncTarget * vsyncMultiplier);
+			}
+			TargetModes.push_back(CreateIddCxTargetMode2(
+				s_DefaultModes[i].Width,
+				s_DefaultModes[i].Height,
+				vsyncTarget
+			));
+		}
 
 		for (uint8_t idx = 0; idx < std::size(mode_scale_factors); idx++) {
 			auto scalc_factor = mode_scale_factors[idx];
@@ -1478,7 +1530,11 @@ VOID SudoVDAIoDeviceControl(
 
 			IndirectMonitorContext* pMonitorContext;
 			uint8_t* edidData = generate_edid(params->MonitorGuid.Data1, params->SerialNumber, params->DeviceName);
-			Status = pDeviceContextWrapper->pContext->CreateMonitor(pMonitorContext, edidData, params->MonitorGuid, {params->Width, params->Height, params->RefreshRate});
+			VirtualMonitorMode preferredMode = {params->Width, params->Height, params->RefreshRate};
+			if (preferredMode.VSync < 1000) {
+				preferredMode.VSync *= 1000;
+			}
+			Status = pDeviceContextWrapper->pContext->CreateMonitor(pMonitorContext, edidData, params->MonitorGuid, preferredMode);
 
 			if (!NT_SUCCESS(Status)) {
 				break;
