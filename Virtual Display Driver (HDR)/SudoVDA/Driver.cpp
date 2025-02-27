@@ -39,6 +39,7 @@ std::mutex monitorListOp;
 std::queue<size_t> freeConnectorSlots;
 std::list<IndirectMonitorContext*> monitorCtxList;
 
+bool isHDRSupported = false;
 bool testMode = false;
 DWORD watchdogTimeout = 3; // seconds
 DWORD watchdogCountdown = 0;
@@ -155,18 +156,29 @@ static inline void FillSignalInfo(DISPLAYCONFIG_VIDEO_SIGNAL_INFO& Mode, DWORD W
 	Mode.AdditionalSignalInfo.vSyncFreqDivider = bMonitorMode ? 0 : 1;
 	Mode.AdditionalSignalInfo.videoStandard = 255;
 
-	if (VSync < 1000) {
-		VSync *= 1000;
+	DWORD Denominator = 1000;
+
+	if (isHDRSupported) {
+		if (VSync < 1000) {
+			VSync *= 1000;
+		}
+	} else {
+		if (VSync % 1000 > 500) {
+			VSync = (VSync / 1000) + 1;
+		} else {
+			VSync /= 1000;
+		}
+		Denominator = 1;
 	}
 
 	Mode.vSyncFreq.Numerator = VSync;
-	Mode.vSyncFreq.Denominator = 1000;
+	Mode.vSyncFreq.Denominator = Denominator;
 	Mode.hSyncFreq.Numerator = VSync * Height;
-	Mode.hSyncFreq.Denominator = 1000;
+	Mode.hSyncFreq.Denominator = Denominator;
 
 	Mode.scanLineOrdering = DISPLAYCONFIG_SCANLINE_ORDERING_PROGRESSIVE;
 
-	Mode.pixelRate = ((UINT64) VSync) * ((UINT64) Width) * ((UINT64) Height) / 1000;
+	Mode.pixelRate = ((UINT64) VSync) * ((UINT64) Width) * ((UINT64) Height) / Denominator;
 }
 
 static IDDCX_MONITOR_MODE CreateIddCxMonitorMode(DWORD Width, DWORD Height, DWORD VSync, IDDCX_MONITOR_MODE_ORIGIN Origin = IDDCX_MONITOR_MODE_ORIGIN_DRIVER)
@@ -474,6 +486,7 @@ NTSTATUS SudoVDADeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT pDeviceInit)
 
 	if (IDD_IS_FIELD_AVAILABLE(IDD_CX_CLIENT_CONFIG, EvtIddCxAdapterQueryTargetInfo))
 	{
+		isHDRSupported = true;
 		IddConfig.EvtIddCxAdapterQueryTargetInfo = SudoVDAAdapterQueryTargetInfo;
 		IddConfig.EvtIddCxMonitorSetDefaultHdrMetaData = SudoVDAMonitorSetDefaultHdrMetadata;
 		IddConfig.EvtIddCxParseMonitorDescription2 = SudoVDAParseMonitorDescription2;
