@@ -63,7 +63,7 @@ static const UINT mode_scale_factors[] = {
 // Default modes reported for edid-less monitors. The second mode is set as preferred
 static const struct VirtualMonitorMode s_DefaultModes[] = {
 	{800, 600, 30000},
-	// {800, 600, 59940},
+	{800, 600, 59940},
 	{800, 600, 60000},
 	{800, 600, 72000},
 	{800, 600, 90000},
@@ -71,14 +71,14 @@ static const struct VirtualMonitorMode s_DefaultModes[] = {
 	{800, 600, 144000},
 	{800, 600, 240000},
 	{1280, 720, 30000},
-	// {1280, 720, 59940},
+	{1280, 720, 59940},
 	{1280, 720, 60000},
 	{1280, 720, 72000},
 	{1280, 720, 90000},
 	{1280, 720, 120000},
 	{1280, 720, 144000},
 	{1366, 768, 30000},
-	// {1366, 768, 59940},
+	{1366, 768, 59940},
 	{1366, 768, 60000},
 	{1366, 768, 72000},
 	{1366, 768, 90000},
@@ -86,7 +86,7 @@ static const struct VirtualMonitorMode s_DefaultModes[] = {
 	{1366, 768, 144000},
 	{1366, 768, 240000},
 	{1920, 1080, 30000},
-	// {1920, 1080, 59940},
+	{1920, 1080, 59940},
 	{1920, 1080, 60000},
 	{1920, 1080, 72000},
 	{1920, 1080, 90000},
@@ -94,7 +94,7 @@ static const struct VirtualMonitorMode s_DefaultModes[] = {
 	{1920, 1080, 144000},
 	{1920, 1080, 240000},
 	{2560, 1440, 30000},
-	// {2560, 1440, 59940},
+	{2560, 1440, 59940},
 	{2560, 1440, 60000},
 	{2560, 1440, 72000},
 	{2560, 1440, 90000},
@@ -102,7 +102,7 @@ static const struct VirtualMonitorMode s_DefaultModes[] = {
 	{2560, 1440, 144000},
 	{2560, 1440, 240000},
 	{3840, 2160, 30000},
-	// {3840, 2160, 59940},
+	{3840, 2160, 59940},
 	{3840, 2160, 60000},
 	{3840, 2160, 72000},
 	{3840, 2160, 90000},
@@ -110,37 +110,37 @@ static const struct VirtualMonitorMode s_DefaultModes[] = {
 	{3840, 2160, 144000},
 	{3840, 2160, 240000},
 
-	// Valve Index (1440x1600 per eye -> 2880x1600 combined)
-	{2880, 1600, 60000},
-	{2880, 1600, 72000},
-	{2880, 1600, 90000},
-	{2880, 1600, 120000},
-	{2880, 1600, 144000},
-	{2880, 1600, 240000},
+	// // Valve Index (1440x1600 per eye -> 2880x1600 combined)
+	// {2880, 1600, 60000},
+	// {2880, 1600, 72000},
+	// {2880, 1600, 90000},
+	// {2880, 1600, 120000},
+	// {2880, 1600, 144000},
+	// {2880, 1600, 240000},
 
-	// Meta Quest 2 (1832x1920 per eye -> 3664x1920 combined)
-	{3664, 1920, 60000},
-	{3664, 1920, 72000},
-	{3664, 1920, 90000},
-	{3664, 1920, 120000},
-	{3664, 1920, 144000},
-	{3664, 1920, 240000},
+	// // Meta Quest 2 (1832x1920 per eye -> 3664x1920 combined)
+	// {3664, 1920, 60000},
+	// {3664, 1920, 72000},
+	// {3664, 1920, 90000},
+	// {3664, 1920, 120000},
+	// {3664, 1920, 144000},
+	// {3664, 1920, 240000},
 
-	// Meta Quest 3 (2064x2208 per eye -> 4128x2208 combined)
-	{4128, 2208, 60000},
-	{4128, 2208, 72000},
-	{4128, 2208, 90000},
-	{4128, 2208, 120000},
-	{4128, 2208, 144000},
-	{4128, 2208, 240000},
+	// // Meta Quest 3 (2064x2208 per eye -> 4128x2208 combined)
+	// {4128, 2208, 60000},
+	// {4128, 2208, 72000},
+	// {4128, 2208, 90000},
+	// {4128, 2208, 120000},
+	// {4128, 2208, 144000},
+	// {4128, 2208, 240000},
 
-	// Apple Vision Pro (3660x3142 per eye -> 7320x3142 combined)
-	{7320, 3142, 60000},
-	{7320, 3142, 72000},
-	{7320, 3142, 90000},
-	{7320, 3142, 120000},
-	{7320, 3142, 144000},
-	{7320, 3142, 240000},
+	// // Apple Vision Pro (3660x3142 per eye -> 7320x3142 combined)
+	// {7320, 3142, 60000},
+	// {7320, 3142, 72000},
+	// {7320, 3142, 90000},
+	// {7320, 3142, 120000},
+	// {7320, 3142, 144000},
+	// {7320, 3142, 240000},
 };
 
 #pragma endregion
@@ -1106,7 +1106,7 @@ NTSTATUS SudoVDAParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION* 
 
 		for (DWORD ModeIndex = 0; ModeIndex < std::size(s_DefaultModes); ModeIndex++) {
 			auto vsyncTarget = s_DefaultModes[ModeIndex].VSync;
-			if (vsyncMultiplier < 1 && !(vsyncTarget % 1000)) {
+			if (vsyncMultiplier != 1 && !(vsyncTarget % 1000)) {
 				vsyncTarget = (DWORD)(vsyncTarget * vsyncMultiplier);
 			}
 			pInArgs->pMonitorModes[ModeIndex] = CreateIddCxMonitorMode(
@@ -1194,7 +1194,7 @@ NTSTATUS SudoVDAParseMonitorDescription2(
 
 		for (DWORD ModeIndex = 0; ModeIndex < std::size(s_DefaultModes); ModeIndex++) {
 			auto vsyncTarget = s_DefaultModes[ModeIndex].VSync;
-			if (vsyncMultiplier < 1 && !(vsyncTarget % 1000)) {
+			if (vsyncMultiplier != 1 && !(vsyncTarget % 1000)) {
 				vsyncTarget = (DWORD)(vsyncTarget * vsyncMultiplier);
 			}
 			pInArgs->pMonitorModes[ModeIndex] = CreateIddCxMonitorMode2(
@@ -1306,7 +1306,7 @@ NTSTATUS SudoVDAMonitorQueryModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_QU
 
 		for (size_t i = 0; i < std::size(s_DefaultModes); i++) {
 			auto vsyncTarget = s_DefaultModes[i].VSync;
-			if (vsyncMultiplier < 1 && !(vsyncTarget % 1000)) {
+			if (vsyncMultiplier != 1 && !(vsyncTarget % 1000)) {
 				vsyncTarget = (DWORD)(vsyncTarget * vsyncMultiplier);
 			}
 			TargetModes.push_back(CreateIddCxTargetMode(
@@ -1374,7 +1374,7 @@ NTSTATUS SudoVDAMonitorQueryModes2(IDDCX_MONITOR MonitorObject, const IDARG_IN_Q
 
 		for (size_t i = 0; i < std::size(s_DefaultModes); i++) {
 			auto vsyncTarget = s_DefaultModes[i].VSync;
-			if (vsyncMultiplier < 1 && !(vsyncTarget % 1000)) {
+			if (vsyncMultiplier != 1 && !(vsyncTarget % 1000)) {
 				vsyncTarget = (DWORD)(vsyncTarget * vsyncMultiplier);
 			}
 			TargetModes.push_back(CreateIddCxTargetMode2(
