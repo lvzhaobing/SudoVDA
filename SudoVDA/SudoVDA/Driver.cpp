@@ -62,6 +62,12 @@ static const UINT mode_scale_factors[] = {
 
 // Default modes reported for edid-less monitors. The second mode is set as preferred
 static const struct VirtualMonitorMode s_DefaultModes[] = {
+    {950, 1080, 60000},
+    {950, 1080, 90000},
+    {950, 1080, 120000},
+    {950, 1200, 60000},
+    {950, 1200, 90000},
+    {950, 1200, 120000},
     {1920, 1080, 60000},
     {1920, 1080, 90000},
     {1920, 1080, 120000},
